@@ -1,0 +1,8 @@
+{
+  "name": "Remix Eggnest Farm Hub",
+  "description": "Kelola kandang dan pantau perkembangan ayam Anda dengan mudah. Platform pencatatan harian, monitoring perkembangan, edukasi, dan performa kandang petelur.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
