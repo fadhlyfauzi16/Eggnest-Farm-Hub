@@ -1,4 +1,5 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useFarm } from '../context/FarmContext';
 import { EggnestLogo } from '../components/common/EggnestLogo';
 import {
@@ -24,11 +25,27 @@ import {
 } from 'lucide-react';
 
 interface LandingPageProps {
-  onNavigateToAuth: (mode?: 'login' | 'register') => void;
+  onNavigateToAuth?: (mode?: 'login' | 'register') => void;
 }
 
 export const LandingPage: React.FC<LandingPageProps> = ({ onNavigateToAuth }) => {
   const { setActivePage, currentUser } = useFarm();
+  const navigate = useNavigate();
+
+  const handleAuthNavigation = (mode: 'login' | 'register' = 'login') => {
+    if (onNavigateToAuth) {
+      onNavigateToAuth(mode);
+    } else {
+      navigate(`/auth?mode=${mode}`);
+    }
+  };
+
+  const handleDashboardNavigation = () => {
+    const targetRoute = currentUser?.role === 'admin' ? '/admin' : '/home';
+    const targetPage = currentUser?.role === 'admin' ? 'admin' : 'beranda';
+    setActivePage(targetPage);
+    navigate(targetRoute);
+  };
 
   const scrollToSection = (id: string) => {
     const el = document.getElementById(id);
@@ -43,8 +60,16 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigateToAuth }) =>
       <header className="sticky top-0 z-40 bg-[#FDFBF7]/90 backdrop-blur-md border-b border-[#EFECE6] px-4 sm:px-8 py-3.5 transition-all">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           {/* Logo */}
-          <div className="flex items-center gap-2 sm:gap-3 cursor-pointer" onClick={() => scrollToSection('hero')}>
-            <EggnestLogo size="md" hideTextOnMobile={true} />
+          <div className="flex items-center gap-3 cursor-pointer" onClick={() => scrollToSection('hero')}>
+            <EggnestLogo size="md" />
+            <div className="flex flex-col">
+              <span className="font-extrabold text-xl tracking-tight text-[#1B3022] font-['Outfit'] leading-none">
+                EGGNEST
+              </span>
+              <span className="text-[10px] font-black tracking-widest text-[#2D4A36] uppercase mt-0.5">
+                FARM HUB
+              </span>
+            </div>
           </div>
 
           {/* Nav Menu */}
@@ -85,7 +110,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigateToAuth }) =>
           <div className="flex items-center gap-3">
             {currentUser ? (
               <button
-                onClick={() => setActivePage(currentUser.role === 'admin' ? 'admin' : 'beranda')}
+                onClick={handleDashboardNavigation}
                 className="px-5 py-2.5 bg-[#1B3022] hover:bg-[#2D4A36] text-[#FDFBF7] font-bold text-sm rounded-xl shadow-xs transition-all flex items-center gap-2 cursor-pointer"
               >
                 <span>Buka Dashboard</span>
@@ -94,13 +119,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigateToAuth }) =>
             ) : (
               <>
                 <button
-                  onClick={() => onNavigateToAuth('login')}
+                  onClick={() => handleAuthNavigation('login')}
                   className="hidden sm:inline-flex px-4 py-2 text-sm font-bold text-[#1B3022] hover:text-[#2D4A36] transition-colors cursor-pointer"
                 >
                   Masuk
                 </button>
                 <button
-                  onClick={() => onNavigateToAuth('register')}
+                  onClick={() => handleAuthNavigation('register')}
                   className="px-5 py-2.5 bg-[#1B3022] hover:bg-[#2D4A36] text-[#FDFBF7] font-bold text-sm rounded-2xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer transform active:scale-95"
                 >
                   <span>MASUK / DAFTAR</span>
@@ -136,7 +161,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigateToAuth }) =>
 
             <div className="pt-2 flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4">
               <button
-                onClick={() => onNavigateToAuth('register')}
+                onClick={() => handleAuthNavigation('register')}
                 className="w-full sm:w-auto px-8 py-4 bg-[#1B3022] hover:bg-[#2D4A36] text-[#FDFBF7] font-black text-base sm:text-lg rounded-2xl shadow-lg shadow-[#1B3022]/15 transition-all transform hover:-translate-y-0.5 active:scale-95 cursor-pointer flex items-center justify-center gap-2"
               >
                 <span>MULAI SEKARANG</span>
@@ -510,7 +535,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigateToAuth }) =>
                 </div>
                 <div className="px-6 pb-6 pt-2">
                   <button
-                    onClick={() => onNavigateToAuth('login')}
+                    onClick={() => handleAuthNavigation('login')}
                     className="text-xs font-bold text-[#2D4A36] hover:text-[#1B3022] flex items-center gap-1 cursor-pointer"
                   >
                     Buka di Eggnest Academy <ChevronRight className="w-4 h-4" />
@@ -538,7 +563,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigateToAuth }) =>
 
           <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-4 relative z-10">
             <button
-              onClick={() => onNavigateToAuth('register')}
+              onClick={() => handleAuthNavigation('register')}
               className="w-full sm:w-auto px-8 py-4 bg-[#D4AF37] hover:bg-[#E5B842] text-[#1B3022] font-black text-base rounded-2xl shadow-md transition-all transform hover:scale-105 active:scale-95 cursor-pointer flex items-center justify-center gap-2"
             >
               <span>AKTIFKAN FARM ANDA</span>
@@ -546,7 +571,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigateToAuth }) =>
             </button>
 
             <button
-              onClick={() => onNavigateToAuth('login')}
+              onClick={() => handleAuthNavigation('login')}
               className="w-full sm:w-auto px-8 py-4 bg-white/10 hover:bg-white/20 text-[#FDFBF7] font-bold text-base rounded-2xl border border-white/20 transition-all cursor-pointer flex items-center justify-center gap-2"
             >
               <span>MASUK KE FARM HUB</span>

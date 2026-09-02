@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useFarm } from '../context/FarmContext';
 import { EggnestLogo } from '../components/common/EggnestLogo';
 import {
@@ -26,9 +27,21 @@ interface AuthPageProps {
 
 export const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login', onBackToLanding }) => {
   const { login, registerMember, showToast } = useFarm();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
-  const [mode, setMode] = useState<'login' | 'register'>(initialMode);
+  const urlMode = searchParams.get('mode');
+  const [mode, setMode] = useState<'login' | 'register'>(
+    urlMode === 'register' || urlMode === 'login' ? urlMode : initialMode
+  );
   const [loginRole, setLoginRole] = useState<'member' | 'admin'>('member');
+
+  useEffect(() => {
+    const qMode = searchParams.get('mode');
+    if (qMode === 'register' || qMode === 'login') {
+      setMode(qMode);
+    }
+  }, [searchParams]);
 
   // Member Login state
   const [memberPhone, setMemberPhone] = useState('081234567890');
@@ -76,12 +89,12 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login', onBac
     setErrorMessage(null);
   };
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
     setIsLoading(true);
 
-    setTimeout(() => {
+    try {
       if (loginRole === 'member') {
         if (!memberPhone.trim() || !memberPassword) {
           setErrorMessage('Nomor WhatsApp dan password wajib diisi.');
@@ -89,13 +102,15 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login', onBac
           return;
         }
 
-        const res = login({
+        const res = await login({
           role: 'member',
           phone: memberPhone.trim(),
           password: memberPassword,
         });
 
-        if (!res.success) {
+        if (res.success) {
+          navigate('/home');
+        } else {
           setErrorMessage(res.message);
         }
       } else {
@@ -105,21 +120,26 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login', onBac
           return;
         }
 
-        const res = login({
+        const res = await login({
           role: 'admin',
           identifier: adminIdentifier.trim(),
           password: adminPassword,
         });
 
-        if (!res.success) {
+        if (res.success) {
+          navigate('/admin');
+        } else {
           setErrorMessage(res.message);
         }
       }
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Login gagal.');
+    } finally {
       setIsLoading(false);
-    }, 400);
+    }
   };
 
-  const handleRegister = (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
 
@@ -145,34 +165,45 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login', onBac
     }
 
     setIsLoading(true);
-    setTimeout(() => {
-      const res = registerMember({
+    try {
+      const res = await registerMember({
         fullName: regFullName.trim(),
         phone: regPhone.trim(),
         password: regPassword,
         farmCode: regFarmCode.trim().toUpperCase(),
       });
 
-      if (!res.success) {
+      if (res.success) {
+        navigate('/home');
+      } else {
         setErrorMessage(res.message);
       }
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Registrasi gagal.');
+    } finally {
       setIsLoading(false);
-    }, 500);
+    }
+  };
+
+  const handleBack = () => {
+    if (onBackToLanding) {
+      onBackToLanding();
+    } else {
+      navigate('/');
+    }
   };
 
   return (
     <div className="min-h-screen bg-[#FDFBF7] flex flex-col justify-center py-10 sm:px-6 lg:px-8 font-['Plus_Jakarta_Sans'] text-[#1B3022] selection:bg-[#EAF2EC]">
       {/* Back button */}
       <div className="max-w-md w-full mx-auto px-4 mb-4 flex items-center justify-between">
-        {onBackToLanding && (
-          <button
-            onClick={onBackToLanding}
-            className="inline-flex items-center gap-1.5 text-xs font-bold text-stone-600 hover:text-[#1B3022] transition-colors cursor-pointer py-1.5 px-3 rounded-xl bg-white border border-[#EFECE6] shadow-xs"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            <span>Kembali ke Beranda</span>
-          </button>
-        )}
+        <button
+          onClick={handleBack}
+          className="inline-flex items-center gap-1.5 text-xs font-bold text-stone-600 hover:text-[#1B3022] transition-colors cursor-pointer py-1.5 px-3 rounded-xl bg-white border border-[#EFECE6] shadow-xs"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          <span>Kembali ke Beranda</span>
+        </button>
         <div className="text-[11px] text-stone-500 font-medium ml-auto">
           Eggnest Secure Portal
         </div>
@@ -182,7 +213,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login', onBac
         {/* Header Logo */}
         <div className="text-center space-y-2">
           <div className="inline-flex items-center justify-center p-2 rounded-2xl bg-white border border-[#EFECE6] shadow-xs mb-1">
-            <EggnestLogo size="lg" showText={false} />
+            <EggnestLogo size="lg" />
           </div>
           <h2 className="text-2xl sm:text-3xl font-extrabold text-[#1B3022] font-['Outfit'] tracking-tight">
             EGGNEST FARM HUB
