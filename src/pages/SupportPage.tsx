@@ -23,7 +23,7 @@ import {
 import confetti from 'canvas-confetti';
 
 export const SupportPage: React.FC = () => {
-  const { farm, tickets, createSupportTicket, showToast } = useFarm();
+  const { farm, tickets, createSupportTicket, replyTicketMessage, showToast } = useFarm();
 
   const [selectedCategory, setSelectedCategory] = useState<SupportCategory | null>(null);
   const [eggCountToday, setEggCountToday] = useState<number>(8);
@@ -93,7 +93,10 @@ export const SupportPage: React.FC = () => {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [replyInputs, setReplyInputs] = useState<Record<string, string>>({});
+  const [isSubmittingReply, setIsSubmittingReply] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedCategory) {
       showToast('⚠️ Silakan pilih kategori masalah terlebih dahulu.');
@@ -104,26 +107,42 @@ export const SupportPage: React.FC = () => {
       return;
     }
 
-    const newTicket = createSupportTicket({
+    const newTicket = await createSupportTicket({
       category: selectedCategory,
+      title: selectedCategory,
       eggCountToday: selectedCategory === 'Produksi Menurun' ? eggCountToday : undefined,
       description,
       photoUrl: photoPreview || undefined,
     });
 
-    setCreatedTicket(newTicket);
-    setDescription('');
-    setPhotoPreview(null);
+    if (newTicket) {
+      setCreatedTicket(newTicket);
+      setDescription('');
+      setPhotoPreview(null);
 
+      try {
+        confetti({
+          particleCount: 80,
+          spread: 60,
+          origin: { y: 0.6 },
+          colors: ['#2D4A36', '#1B3022', '#D4AF37'],
+        });
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  const handleSendReply = async (ticketId: string) => {
+    const msg = replyInputs[ticketId];
+    if (!msg || !msg.trim()) return;
+
+    setIsSubmittingReply(ticketId);
     try {
-      confetti({
-        particleCount: 80,
-        spread: 60,
-        origin: { y: 0.6 },
-        colors: ['#2D4A36', '#1B3022', '#D4AF37'],
-      });
-    } catch {
-      // ignore
+      await replyTicketMessage(ticketId, msg.trim());
+      setReplyInputs((prev) => ({ ...prev, [ticketId]: '' }));
+    } finally {
+      setIsSubmittingReply(null);
     }
   };
 
@@ -475,16 +494,69 @@ export const SupportPage: React.FC = () => {
                     </p>
                   </div>
 
-                  {/* Admin notes if any */}
-                  {ticket.adminNotes && (
-                    <div className="bg-[#EAF2EC] p-4 rounded-2xl border border-[#CDE3D3] text-xs text-[#1B3022] space-y-1">
-                      <div className="flex items-center gap-1.5 font-bold text-[#1B3022]">
-                        <UserCheck className="w-4 h-4 text-[#2D6A4F]" />
-                        Tanggapan Dokter Hewan / Tim Teknis Eggnest:
+                  {/* Message Thread */}
+                  {ticket.messages && ticket.messages.length > 0 && (
+                    <div className="space-y-2 pt-2 border-t border-[#EFECE6]">
+                      <span className="text-xs font-bold text-stone-500 uppercase block font-['Outfit']">
+                        Percakapan & Diskusi:
+                      </span>
+                      <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                        {ticket.messages.map((m) => {
+                          const isAdmin = m.senderRole === 'admin';
+                          return (
+                            <div
+                              key={m.id}
+                              className={`p-3 rounded-2xl text-xs ${
+                                isAdmin
+                                  ? 'bg-[#EAF2EC] border border-[#CDE3D3] text-[#1B3022] ml-4'
+                                  : 'bg-[#FAF7F2] border border-[#EFECE6] text-stone-800 mr-4'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between font-bold mb-1">
+                                <span>{m.senderName}</span>
+                                <span className="text-[10px] text-stone-400 font-normal">
+                                  {m.createdAt?.split('T')[0] || m.createdAt}
+                                </span>
+                              </div>
+                              <p className="leading-relaxed">{m.message}</p>
+                              {m.attachmentUrl && (
+                                <img
+                                  src={m.attachmentUrl}
+                                  alt="Lampiran"
+                                  className="mt-2 h-24 rounded-lg object-cover border border-[#EFECE6]"
+                                />
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
-                      <p className="leading-relaxed text-stone-700">{ticket.adminNotes}</p>
                     </div>
                   )}
+
+                  {/* Reply Box */}
+                  <div className="flex items-center gap-2 pt-2">
+                    <input
+                      type="text"
+                      placeholder="Tulis balasan atau info tambahan..."
+                      value={replyInputs[ticket.id] || ''}
+                      onChange={(e) =>
+                        setReplyInputs((prev) => ({ ...prev, [ticket.id]: e.target.value }))
+                      }
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleSendReply(ticket.id);
+                      }}
+                      className="flex-1 px-4 py-2.5 rounded-xl border border-[#EFECE6] bg-[#FAF7F2] text-xs text-[#1B3022] outline-none focus:ring-2 focus:ring-[#2D4A36]"
+                    />
+                    <button
+                      type="button"
+                      disabled={isSubmittingReply === ticket.id || !replyInputs[ticket.id]?.trim()}
+                      onClick={() => handleSendReply(ticket.id)}
+                      className="px-4 py-2.5 bg-[#2D4A36] text-[#FDFBF7] font-bold rounded-xl text-xs hover:bg-[#1B3022] disabled:opacity-50 cursor-pointer flex items-center gap-1.5 transition-all"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      <span>Kirim</span>
+                    </button>
+                  </div>
                 </div>
               );
             })}
