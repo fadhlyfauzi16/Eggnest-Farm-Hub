@@ -87,21 +87,35 @@ export const AdminPage: React.FC = () => {
   // Settings local state
   const [localSettings, setLocalSettings] = useState(settings);
 
+  // Normalize farm data from backend (supports both camelCase and snake_case)
+  const normalizedFarms = farms.map((farm: any) => ({
+    ...farm,
+    farmCode: String(farm.farmCode ?? farm.farm_code ?? ''),
+    ownerName: String(farm.ownerName ?? farm.owner_name ?? ''),
+    phone: String(farm.phone ?? ''),
+    location: String(farm.location ?? ''),
+    status: farm.status ?? 'unclaimed',
+    activeChickens: Number(farm.activeChickens ?? farm.active_chickens ?? 0),
+    currentAgeWeeks: Number(farm.currentAgeWeeks ?? farm.current_age_weeks ?? 0),
+    userId: farm.userId ?? farm.ownerUserId ?? farm.owner_user_id ?? null,
+  }));
+
   // Filtered Farms
-  const filteredFarms = farms.filter((f) => {
+  const normalizedSearch = String(searchQuery ?? '').trim().toLowerCase();
+  const filteredFarms = normalizedFarms.filter((f) => {
     const matchSearch =
-      f.farmCode.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (f.ownerName && f.ownerName.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      f.location.toLowerCase().includes(searchQuery.toLowerCase());
+      f.farmCode.toLowerCase().includes(normalizedSearch) ||
+      f.ownerName.toLowerCase().includes(normalizedSearch) ||
+      f.location.toLowerCase().includes(normalizedSearch);
 
     if (statusFilter === 'all') return matchSearch;
     return matchSearch && f.status === statusFilter;
   });
 
   // Calculate high-level system metrics
-  const totalFarms = farms.length;
-  const activeFarms = farms.filter((f) => f.status === 'active' || f.status === 'warning' || f.status === 'critical').length;
-  const totalChickens = farms.reduce((acc, f) => acc + (f.activeChickens || 0), 0);
+  const totalFarms = normalizedFarms.length;
+  const activeFarms = normalizedFarms.filter((f) => f.status === 'active' || f.status === 'warning' || f.status === 'critical').length;
+  const totalChickens = normalizedFarms.reduce((acc, f) => acc + (f.activeChickens || 0), 0);
   
   // Today's total eggs across all farms
   const todayReports = allReports.filter((r) => r.date === '2026-08-31');
@@ -275,7 +289,7 @@ export const AdminPage: React.FC = () => {
       {/* Tabs Navigation */}
       <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar border-b border-[#EFECE6] pb-2 w-full">
         {[
-          { id: 'kandang', label: 'Kandang & Member', icon: Warehouse, count: farms.length },
+          { id: 'kandang', label: 'Kandang & Member', icon: Warehouse, count: normalizedFarms.length },
           { id: 'alerts', label: 'Smart Alerts', icon: ShieldAlert, count: adminAlerts.filter((a) => !a.resolved).length },
           { id: 'tickets', label: 'Tiket Bantuan', icon: Headphones, count: tickets.filter((t) => t.status !== 'Selesai').length },
           { id: 'academy', label: 'Academy', icon: BookOpen, count: academyContents.length },
