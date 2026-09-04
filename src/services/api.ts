@@ -161,6 +161,7 @@ export const api = {
   },
 
   async createFarm(data: {
+    farmCode?: string;
     ownerName?: string;
     phone?: string;
     location?: string;
@@ -179,6 +180,13 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(data),
     });
+  },
+
+  async deleteFarm(farmId: string, deleteMember: boolean = true) {
+    return request<{ success: boolean; message: string }>(
+      `/admin/farms/${encodeURIComponent(farmId)}?deleteMember=${deleteMember ? 'true' : 'false'}`,
+      { method: 'DELETE' }
+    );
   },
 
   // Support Tickets

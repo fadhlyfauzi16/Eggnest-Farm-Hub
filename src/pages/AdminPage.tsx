@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import * as XLSX from 'xlsx';
+import { api } from '../services/api';
 import { useFarm } from '../context/FarmContext';
 import {
   ShieldAlert,
@@ -28,6 +30,9 @@ import {
   Database,
   UserCheck,
   Send,
+  Upload,
+  Download,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { SupportStatus, SupportTicket, AcademyCategory } from '../types';
 
@@ -51,7 +56,6 @@ export const AdminPage: React.FC = () => {
     resetToCleanDatabase,
     loadDemoDatabase,
     impersonateFarm,
-    createFarm,
     showToast,
     setActivePage,
   } = useFarm();
@@ -68,10 +72,21 @@ export const AdminPage: React.FC = () => {
 
   // Add Farm modal state
   const [isAddFarmOpen, setIsAddFarmOpen] = useState(false);
+  const [newFarmCode, setNewFarmCode] = useState('');
   const [newFarmOwner, setNewFarmOwner] = useState('');
   const [newFarmPhone, setNewFarmPhone] = useState('');
   const [newFarmLocation, setNewFarmLocation] = useState('');
   const [newFarmChickens, setNewFarmChickens] = useState(12);
+
+  // Excel import / export
+  type ImportType = 'members' | 'farms' | 'chickens' | 'reports';
+  type ExportType = 'members' | 'farms' | 'chickens' | 'reports' | 'scores' | 'tickets';
+  const [importType, setImportType] = useState<ImportType>('farms');
+  const [exportType, setExportType] = useState<ExportType>('farms');
+  const [isImportOpen, setIsImportOpen] = useState(false);
+  const [importResult, setImportResult] = useState<any | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   // Academy Form state
   const [isAddAcademyOpen, setIsAddAcademyOpen] = useState(false);
@@ -87,7 +102,7 @@ export const AdminPage: React.FC = () => {
   // Settings local state
   const [localSettings, setLocalSettings] = useState(settings);
 
-  // Normalize farm data from backend (supports both camelCase and snake_case)
+  // Normalize backend farm rows so admin UI supports snake_case and camelCase safely
   const normalizedFarms = farms.map((farm: any) => ({
     ...farm,
     farmCode: String(farm.farmCode ?? farm.farm_code ?? ''),
@@ -114,38 +129,121 @@ export const AdminPage: React.FC = () => {
 
   // Calculate high-level system metrics
   const totalFarms = normalizedFarms.length;
-  const activeFarms = normalizedFarms.filter((f) => f.status === 'active' || f.status === 'warning' || f.status === 'critical').length;
+  const activeFarms = normalizedFarms.filter(
+    (f) => f.status === 'active' || f.status === 'warning' || f.status === 'critical'
+  ).length;
   const totalChickens = normalizedFarms.reduce((acc, f) => acc + (f.activeChickens || 0), 0);
-  
-  // Today's total eggs across all farms
-  const todayReports = allReports.filter((r) => r.date === '2026-08-31');
-  const totalTodayEggs = todayReports.reduce((acc, r) => acc + r.eggCount, 0);
-  const avgProductivity = totalChickens > 0 && todayReports.length > 0
-    ? Math.round((totalTodayEggs / (todayReports.length * 12)) * 100)
-    : 81;
+
+  // Today's production - no fabricated fallback value
+  const todayKey = new Date().toLocaleDateString('en-CA');
+  const todayReports = allReports.filter((r: any) => String(r.date ?? r.report_date ?? '') === todayKey);
+  const totalTodayEggs = todayReports.reduce((acc: number, r: any) => acc + Number(r.eggCount ?? r.egg_count ?? 0), 0);
+  const avgProductivity =
+    totalChickens > 0 && todayReports.length > 0
+      ? Math.round(
+          todayReports.reduce(
+            (acc: number, r: any) => acc + Number(r.productivityRate ?? r.productivity_rate ?? 0),
+            0
+          ) / todayReports.length
+        )
+      : 0;
 
   const handleContactMember = (name: string, phone: string) => {
     showToast(`📱 Menghubungi ${name} (${phone}) via WhatsApp...`);
   };
 
-  const handleCreateFarm = (e: React.FormEvent) => {
+  const handleCreateFarm = async (e: React.FormEvent) => {
     e.preventDefault();
-    createFarm({
-      ownerName: newFarmOwner.trim(),
-      phone: newFarmPhone.trim(),
-      location: newFarmLocation.trim() || 'Jakarta, Indonesia',
-      initialChickens: newFarmChickens,
-      activeChickens: newFarmChickens,
-      chickenBreed: 'Layer Lohmann Brown Petelur Unggul',
-      initialAgeWeeks: 18,
-      currentAgeWeeks: 18,
-      warrantyEnd: '30 Hari setelah aktivasi',
-      photoUrl: 'https://images.unsplash.com/photo-1548550023-2bdb3c5beed7?auto=format&fit=crop&w=1000&q=80',
-    });
-    setIsAddFarmOpen(false);
-    setNewFarmOwner('');
-    setNewFarmPhone('');
-    setNewFarmLocation('');
+    try {
+      const res = await api.createFarm({
+        farmCode: newFarmCode.trim() || undefined,
+        ownerName: newFarmOwner.trim(),
+        phone: newFarmPhone.trim(),
+        location: newFarmLocation.trim() || 'Paket Belum Diaktivasi (Tersedia)',
+        initialChickens: newFarmChickens,
+        chickenBreed: 'Layer Lohmann Brown Petelur Unggul',
+        initialAgeWeeks: 18,
+      });
+
+      showToast(`${res.message} Kode aktivasi: ${String((res.farm as any)?.farmCode ?? (res.farm as any)?.farm_code ?? '')}`);
+      setIsAddFarmOpen(false);
+      setNewFarmCode('');
+      setNewFarmOwner('');
+      setNewFarmPhone('');
+      setNewFarmLocation('');
+      window.setTimeout(() => window.location.reload(), 500);
+    } catch (err: any) {
+      showToast(err?.message || 'Gagal membuat Farm ID');
+    }
+  };
+
+  const handleExportExcel = async () => {
+    try {
+      setIsExporting(true);
+      await api.downloadExportExcel(exportType);
+      showToast(`Export ${exportType} berhasil diunduh`);
+    } catch (err: any) {
+      showToast(err?.message || 'Gagal export Excel');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleImportFile = async (file?: File) => {
+    if (!file) return;
+    try {
+      setIsImporting(true);
+      setImportResult(null);
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array' });
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<any>(firstSheet, { defval: '' });
+      if (!rows.length) throw new Error('File Excel kosong atau tidak memiliki baris data.');
+      const validation = await api.validateImport(importType, rows);
+      setImportResult(validation);
+    } catch (err: any) {
+      showToast(err?.message || 'Gagal membaca / memvalidasi Excel');
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  const handleCommitImport = async () => {
+    if (!importResult?.preview?.length) return;
+    try {
+      setIsImporting(true);
+      const res = await api.commitImport(importType, importResult.preview);
+      showToast(res.message || `${res.importedCount} data berhasil diimport`);
+      setIsImportOpen(false);
+      setImportResult(null);
+      window.setTimeout(() => window.location.reload(), 500);
+    } catch (err: any) {
+      showToast(err?.message || 'Gagal menyimpan hasil import');
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  const handleDeleteFarm = async (farm: any) => {
+    const code = String(farm.farmCode || farm.farm_code || '');
+    const owner = String(farm.ownerName || farm.owner_name || '');
+    const confirmation = window.prompt(
+      `HAPUS FARM ${code}
+
+${owner ? `Pemilik: ${owner}
+` : ''}Data laporan, tiket, alert, dan akun member yang terhubung juga akan dihapus.
+
+Ketik HAPUS untuk melanjutkan.`
+    );
+    if (confirmation !== 'HAPUS') return;
+
+    try {
+      const res = await api.deleteFarm(farm.id, true);
+      showToast(res.message);
+      window.setTimeout(() => window.location.reload(), 400);
+    } catch (err: any) {
+      showToast(err?.message || 'Gagal menghapus Farm ID');
+    }
   };
 
   const handleSaveAcademy = (e: React.FormEvent) => {
@@ -199,16 +297,6 @@ export const AdminPage: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => {
-              setActivePage('beranda');
-            }}
-            className="px-5 py-2.5 bg-white/10 hover:bg-white/20 text-[#FDFBF7] font-bold text-xs rounded-xl border border-white/20 transition-colors self-start sm:self-auto cursor-pointer"
-          >
-            ← Buka Dashboard Member
-          </button>
-        </div>
       </div>
 
       {/* 6 Top Metric Cards */}
@@ -364,6 +452,40 @@ export const AdminPage: React.FC = () => {
                 ))}
               </div>
 
+              <div className="flex items-center gap-1.5 w-full sm:w-auto">
+                <select
+                  value={exportType}
+                  onChange={(e) => setExportType(e.target.value as ExportType)}
+                  className="px-2.5 py-2.5 bg-white border border-[#EFECE6] rounded-xl text-xs font-bold text-stone-700"
+                  title="Pilih data yang akan diexport"
+                >
+                  <option value="farms">Farm ID</option>
+                  <option value="members">Member</option>
+                  <option value="chickens">Ayam</option>
+                  <option value="reports">Laporan</option>
+                  <option value="scores">Farm Score</option>
+                  <option value="tickets">Tiket</option>
+                </select>
+                <button
+                  onClick={handleExportExcel}
+                  disabled={isExporting}
+                  className="px-3 py-2.5 bg-white border border-[#CDE3D3] text-[#1B3022] font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>{isExporting ? 'Export...' : 'Download Excel'}</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setImportResult(null);
+                    setIsImportOpen(true);
+                  }}
+                  className="px-3 py-2.5 bg-[#EAF2EC] border border-[#CDE3D3] text-[#1B3022] font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Upload className="w-4 h-4" />
+                  <span>Upload Excel</span>
+                </button>
+              </div>
+
               {/* Add Farm Button */}
               <button
                 onClick={() => setIsAddFarmOpen(true)}
@@ -434,6 +556,13 @@ export const AdminPage: React.FC = () => {
                       <span>WhatsApp</span>
                     </button>
                   )}
+                  <button
+                    onClick={() => handleDeleteFarm(f)}
+                    className="px-3 py-1.5 bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 font-bold text-xs rounded-xl flex items-center gap-1 cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Hapus</span>
+                  </button>
                 </div>
               </div>
             ))}
@@ -510,6 +639,13 @@ export const AdminPage: React.FC = () => {
                             <Phone className="w-4 h-4" />
                           </button>
                         )}
+                        <button
+                          onClick={() => handleDeleteFarm(f)}
+                          className="p-2 text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
+                          title={`Hapus ${f.farmCode}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -857,6 +993,21 @@ export const AdminPage: React.FC = () => {
             <form onSubmit={handleCreateFarm} className="space-y-3.5 text-xs">
               <div>
                 <label className="block font-bold text-stone-700 mb-1">
+                  Farm ID / Kode Aktivasi
+                </label>
+                <input
+                  type="text"
+                  value={newFarmCode}
+                  onChange={(e) => setNewFarmCode(e.target.value.toUpperCase())}
+                  placeholder="Contoh: EN-000101 — kosongkan untuk otomatis"
+                  className="w-full px-3.5 py-2.5 bg-[#FAF7F2] border border-[#EFECE6] rounded-xl text-sm font-black text-[#1B3022] tracking-wide"
+                />
+                <p className="text-[10px] text-stone-500 mt-1">
+                  Kode ini diberikan kepada pembeli untuk registrasi akun. Harus unik.
+                </p>
+              </div>
+              <div>
+                <label className="block font-bold text-stone-700 mb-1">
                   Nama Pemilik (Opsional jika belum diklaim)
                 </label>
                 <input
@@ -909,10 +1060,101 @@ export const AdminPage: React.FC = () => {
                   type="submit"
                   className="px-5 py-2.5 bg-[#1B3022] hover:bg-[#2D4A36] text-white font-bold rounded-xl shadow-xs"
                 >
-                  Generate Farm ID
+                  Simpan Farm ID
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: IMPORT EXCEL */}
+      {isImportOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl shadow-2xl border border-[#EFECE6] w-full max-w-xl p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-[#EFECE6] pb-3">
+              <div>
+                <h3 className="text-lg font-bold text-[#1B3022] font-['Outfit'] flex items-center gap-2">
+                  <FileSpreadsheet className="w-5 h-5" />
+                  Import Data Excel
+                </h3>
+                <p className="text-[11px] text-stone-500 mt-1">Pilih jenis data, upload Excel, cek validasi, lalu simpan.</p>
+              </div>
+              <button onClick={() => setIsImportOpen(false)} className="text-stone-400 hover:text-stone-700">✕</button>
+            </div>
+
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block font-bold text-xs text-stone-700 mb-1">Jenis Data</label>
+                <select
+                  value={importType}
+                  onChange={(e) => {
+                    setImportType(e.target.value as ImportType);
+                    setImportResult(null);
+                  }}
+                  className="w-full px-3 py-2.5 bg-[#FAF7F2] border border-[#EFECE6] rounded-xl text-xs font-bold"
+                >
+                  <option value="farms">Farm ID / Kandang</option>
+                  <option value="members">Member</option>
+                  <option value="chickens">Populasi Ayam</option>
+                  <option value="reports">Laporan Harian</option>
+                </select>
+              </div>
+              <div>
+                <label className="block font-bold text-xs text-stone-700 mb-1">File Excel</label>
+                <input
+                  type="file"
+                  accept=".xlsx,.xls"
+                  disabled={isImporting}
+                  onChange={(e) => handleImportFile(e.target.files?.[0])}
+                  className="w-full text-xs file:mr-2 file:px-3 file:py-2 file:rounded-lg file:border-0 file:bg-[#EAF2EC] file:text-[#1B3022] file:font-bold"
+                />
+              </div>
+            </div>
+
+            {isImporting && <div className="text-xs font-bold text-[#2D4A36]">Memproses Excel...</div>}
+
+            {importResult && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="p-3 rounded-xl bg-[#FAF7F2] border border-[#EFECE6]">
+                    <div className="text-[10px] text-stone-500 font-bold">TOTAL</div>
+                    <div className="text-xl font-black text-[#1B3022]">{importResult.totalRows}</div>
+                  </div>
+                  <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200">
+                    <div className="text-[10px] text-emerald-700 font-bold">VALID</div>
+                    <div className="text-xl font-black text-emerald-800">{importResult.validCount}</div>
+                  </div>
+                  <div className="p-3 rounded-xl bg-rose-50 border border-rose-200">
+                    <div className="text-[10px] text-rose-700 font-bold">ERROR</div>
+                    <div className="text-xl font-black text-rose-800">{importResult.invalidCount}</div>
+                  </div>
+                </div>
+
+                {importResult.errors?.length > 0 && (
+                  <div className="max-h-36 overflow-y-auto rounded-xl border border-rose-200 bg-rose-50 p-3">
+                    {importResult.errors.slice(0, 20).map((err: any, idx: number) => (
+                      <div key={idx} className="text-[11px] text-rose-800 mb-1">
+                        Baris {err.row}: {err.reason}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-2">
+                  <button onClick={() => setIsImportOpen(false)} className="px-4 py-2 text-stone-600 font-bold text-xs rounded-xl">
+                    Batal
+                  </button>
+                  <button
+                    onClick={handleCommitImport}
+                    disabled={isImporting || !importResult.validCount}
+                    className="px-5 py-2.5 bg-[#1B3022] text-white font-bold text-xs rounded-xl disabled:opacity-40"
+                  >
+                    Import {importResult.validCount} Data Valid
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

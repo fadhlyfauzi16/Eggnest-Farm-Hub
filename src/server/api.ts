@@ -611,16 +611,39 @@ router.get('/farms', requireAuth, async (req: AuthRequest, res) => {
 
 router.post('/admin/farms', requireAdmin, async (req: AuthRequest, res) => {
   try {
-    const { ownerName = '', phone = '', location = 'Paket Belum Diaktivasi (Tersedia)', initialChickens = 12, chickenBreed = 'Layer Lohmann Brown Petelur Unggul', initialAgeWeeks = 18 } = req.body;
+    const {
+      farmCode,
+      ownerName = '',
+      phone = '',
+      location = 'Paket Belum Diaktivasi (Tersedia)',
+      initialChickens = 12,
+      chickenBreed = 'Layer Lohmann Brown Petelur Unggul',
+      initialAgeWeeks = 18,
+    } = req.body;
     const db = await getDb();
 
-    // Generate next sequential Farm Code
-    const allCodes = queryAll<{ farm_code: string }>(db, `SELECT farm_code FROM farms`);
-    const numCodes = allCodes
-      .map((c) => parseInt(c.farm_code.replace('EN-', ''), 10))
-      .filter((n) => !isNaN(n));
-    const maxNum = numCodes.length > 0 ? Math.max(...numCodes) : 100;
-    const nextCode = `EN-${String(maxNum + 1).padStart(6, '0')}`;
+    // Farm ID can be supplied by admin or generated automatically.
+    let nextCode = '';
+    if (farmCode && String(farmCode).trim()) {
+      nextCode = String(farmCode).trim().toUpperCase();
+      if (!/^EN-\d{6}$/.test(nextCode)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Format Farm ID harus EN- diikuti 6 digit. Contoh: EN-000101.',
+        });
+      }
+      const duplicate = queryOne<any>(db, `SELECT id FROM farms WHERE UPPER(farm_code) = UPPER(?)`, [nextCode]);
+      if (duplicate) {
+        return res.status(409).json({ success: false, message: `Farm ID ${nextCode} sudah digunakan.` });
+      }
+    } else {
+      const allCodes = queryAll<{ farm_code: string }>(db, `SELECT farm_code FROM farms`);
+      const numCodes = allCodes
+        .map((c) => parseInt(String(c.farm_code || '').replace('EN-', ''), 10))
+        .filter((n) => !isNaN(n));
+      const maxNum = numCodes.length > 0 ? Math.max(...numCodes) : 100;
+      nextCode = `EN-${String(maxNum + 1).padStart(6, '0')}`;
+    }
 
     const newFarmId = `farm-${Date.now()}`;
     const now = new Date().toISOString();
@@ -686,6 +709,62 @@ router.put('/admin/farms/:id', requireAdmin, async (req: AuthRequest, res) => {
     res.json({ success: true, message: 'Data kandang berhasil diperbarui.', farm: updated });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Gagal memperbarui data kandang.' });
+  }
+});
+
+router.delete('/admin/farms/:id', requireAdmin, async (req: AuthRequest, res) => {
+  try {
+    const db = await getDb();
+    const farmId = req.params.id;
+    const deleteMember = String(req.query.deleteMember ?? 'true') !== 'false';
+    const farm = queryOne<any>(db, `SELECT * FROM farms WHERE id = ?`, [farmId]);
+
+    if (!farm) {
+      return res.status(404).json({ success: false, message: 'Farm ID tidak ditemukan.' });
+    }
+
+    const linkedUserId = farm.owner_user_id || null;
+    const now = new Date().toISOString();
+
+    // Remove dependent operational data first.
+    runSql(db, `DELETE FROM support_messages WHERE ticket_id IN (SELECT id FROM support_tickets WHERE farm_id = ?)`, [farmId]);
+    runSql(db, `DELETE FROM support_tickets WHERE farm_id = ?`, [farmId]);
+    runSql(db, `DELETE FROM daily_reports WHERE farm_id = ?`, [farmId]);
+    runSql(db, `DELETE FROM alerts WHERE farm_id = ?`, [farmId]);
+
+    // Break circular user/farm references before deletion.
+    if (linkedUserId) {
+      runSql(db, `UPDATE users SET farm_id = NULL, updated_at = ? WHERE id = ?`, [now, linkedUserId]);
+    }
+    runSql(db, `UPDATE farms SET owner_user_id = NULL, updated_at = ? WHERE id = ?`, [now, farmId]);
+
+    if (deleteMember && linkedUserId) {
+      runSql(db, `DELETE FROM users WHERE id = ? AND role = 'member'`, [linkedUserId]);
+    }
+
+    runSql(db, `DELETE FROM farms WHERE id = ?`, [farmId]);
+
+    runSql(
+      db,
+      `INSERT INTO admin_logs (id, admin_user_id, admin_name, target_user_id, action, details, timestamp)
+       VALUES (?, ?, ?, ?, 'DELETE_FARM', ?, ?)`,
+      [
+        `log-${Date.now()}`,
+        req.user!.id,
+        req.user!.fullName || 'Administrator Eggnest',
+        linkedUserId,
+        `Menghapus Farm ID ${farm.farm_code}${deleteMember && linkedUserId ? ' beserta akun member terkait' : ''}`,
+        now,
+      ]
+    );
+
+    return res.json({
+      success: true,
+      message: `Farm ID ${farm.farm_code} berhasil dihapus${deleteMember && linkedUserId ? ' beserta akun member terkait' : ''}.`,
+    });
+  } catch (err: any) {
+    console.error('Error deleting farm:', err);
+    return res.status(500).json({ success: false, message: 'Gagal menghapus Farm ID.' });
   }
 });
 
