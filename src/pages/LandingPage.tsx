@@ -254,7 +254,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigateToAuth }) =>
               {
                 step: '2',
                 title: 'Aktifkan Farm ID',
-                desc: 'Daftar di Farm Hub dengan kode unik kandang Anda (contoh: EN-000127).',
+                desc: 'Daftar di Farm Hub dengan kode unik kandang Anda (contoh: EN-000001).',
                 icon: Sparkles,
                 badge: 'Aktivasi Digital',
               },
@@ -408,12 +408,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigateToAuth }) =>
               <div>
                 <span className="text-xs text-[#A3B899] font-semibold">Dashboard Kandang Saya</span>
                 <h3 className="text-2xl font-black text-[#FDFBF7] font-['Outfit'] mt-0.5">
-                  Selamat datang, Pak Budi 👋
+                  Selamat datang, Peternak Mitra 👋
                 </h3>
               </div>
               <div className="flex items-center gap-2">
                 <span className="px-3 py-1 bg-[#1B3022] text-[#D4AF37] text-xs font-mono font-bold rounded-xl border border-[#3A5A40]">
-                  Farm ID: EN-000127
+                  Farm ID: EN-000001
                 </span>
                 <span className="px-2.5 py-1 bg-[#588157] text-[#FDFBF7] text-xs font-bold rounded-xl">
                   🟢 Baik
@@ -491,21 +491,21 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigateToAuth }) =>
                 cat: 'Produksi Telur',
                 desc: 'Tips penting menjaga konsistensi bertelur pada usia puncak produksi 20–25 minggu.',
                 type: 'Video 2 Menit',
-                img: 'https://images.unsplash.com/photo-1516467508483-a7212febe31a?auto=format&fit=crop&w=600&q=80',
+                img: 'https://images.unsplash.com/photo-1548550023-2bdb3c5beed7?auto=format&fit=crop&w=600&q=80',
               },
               {
                 title: 'Berapa kebutuhan pakan 12 ekor ayam?',
                 cat: 'Pakan Harian',
                 desc: 'Panduan takaran harian yang tepat untuk 12 ekor ayam layer tanpa sisa pakan basi.',
                 type: 'Artikel 2 Menit',
-                img: 'https://images.unsplash.com/photo-1548550023-2bdb3c5beed7?auto=format&fit=crop&w=600&q=80',
+                img: 'https://images.unsplash.com/photo-1563281577-a7be47e20db9?auto=format&fit=crop&w=600&q=80',
               },
               {
                 title: 'Cara menjaga air minum tetap bersih',
                 cat: 'Sanitasi Kandang',
                 desc: 'Sanitasi tempat minum nipple / talang agar terhindar dari bakteri dan penyakit.',
                 type: 'Artikel 3 Menit',
-                img: 'https://images.unsplash.com/photo-1500595046743-cd271d694d30?auto=format&fit=crop&w=600&q=80',
+                img: 'https://images.unsplash.com/photo-1516972810927-80185027ca84?auto=format&fit=crop&w=600&q=80',
               },
             ].map((art, idx) => (
               <div

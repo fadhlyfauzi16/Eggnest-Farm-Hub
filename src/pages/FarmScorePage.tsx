@@ -84,14 +84,19 @@ export const FarmScorePage: React.FC = () => {
 
             {/* 5 Stars Rating */}
             <div className="flex items-center gap-1.5 mt-2">
-              {[1, 2, 3, 4, 5].map((star) => (
-                <Star
-                  key={star}
-                  className="w-6 h-6 fill-[#D4AF37] text-[#D4AF37] drop-shadow-xs"
-                />
-              ))}
+              {[1, 2, 3, 4, 5].map((star) => {
+                const filled = star <= Math.round(farmScore.totalScore / 20);
+                return (
+                  <Star
+                    key={star}
+                    className={`w-6 h-6 ${
+                      filled ? 'fill-[#D4AF37] text-[#D4AF37]' : 'text-stone-300'
+                    } drop-shadow-xs`}
+                  />
+                );
+              })}
               <span className="text-xs font-black text-stone-600 ml-2">
-                5.0 / 5.0 (Bintang Emas)
+                {(farmScore.totalScore / 20).toFixed(1)} / 5.0 (Bintang Evaluasi)
               </span>
             </div>
           </div>
@@ -104,10 +109,14 @@ export const FarmScorePage: React.FC = () => {
               </span>
               <div>
                 <h3 className="text-xl font-bold text-[#1B3022] font-['Outfit']">
-                  Kategori Peternak Unggulan (Tier Platinum)
+                  {farmScore.totalScore >= 85
+                    ? 'Kategori Peternak Unggulan (Tier Platinum)'
+                    : farmScore.totalScore >= 70
+                    ? 'Kategori Peternak Produktif (Tier Gold)'
+                    : 'Kategori Peternak Mandiri (Tier Silver)'}
                 </h3>
                 <p className="text-xs text-stone-500">
-                  Kandang {farm.farmCode} memenuhi seluruh kualifikasi standar tinggi Eggnest.
+                  Kandang {farm.farmCode} ({farm.ownerName}) dievaluasi berdasarkan data pelaporan aktual.
                 </p>
               </div>
             </div>
@@ -122,10 +131,10 @@ export const FarmScorePage: React.FC = () => {
                   Streak Pencatatan Aktif
                 </span>
                 <p className="text-base md:text-lg font-black text-[#1B3022] font-['Outfit']">
-                  🔥 Laporan rutin 26 hari berturut-turut
+                  🔥 {farmScore.streakDays > 0 ? `${farmScore.streakDays} hari berturut-turut tercatat` : 'Pencatatan rutin aktif'}
                 </p>
                 <span className="text-[11px] text-stone-600">
-                  Konsistensi Anda menjamin garansi penggantian bibit 100% aman.
+                  Konsistensi Anda menjamin garansi penggantian bibit 100% aman dan terpantau.
                 </span>
               </div>
             </div>

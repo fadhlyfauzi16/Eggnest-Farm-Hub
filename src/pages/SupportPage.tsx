@@ -427,7 +427,29 @@ export const SupportPage: React.FC = () => {
           </div>
 
           <div className="space-y-4">
-            {tickets.map((ticket) => {
+            {tickets.length === 0 ? (
+              <div className="bg-white rounded-3xl border border-[#EFECE6] p-10 text-center space-y-4 shadow-xs">
+                <div className="w-16 h-16 rounded-full bg-[#EAF2EC] text-[#2D4A36] flex items-center justify-center mx-auto border border-[#CDE3D3]">
+                  <MessageSquare className="w-8 h-8" />
+                </div>
+                <div>
+                  <h4 className="text-lg font-bold text-[#1B3022] font-['Outfit']">Belum Ada Riwayat Konsultasi</h4>
+                  <p className="text-stone-500 text-sm mt-1 max-w-md mx-auto">
+                    Kandang Anda saat ini dalam pemantauan normal. Jika mengalami kendala pada ayam atau produksi telur, tim dokter hewan Eggnest siap mendampingi.
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    setActiveTicketTab('create');
+                    setCreatedTicket(null);
+                  }}
+                  className="px-6 py-3 bg-[#2D4A36] text-[#FDFBF7] font-bold text-sm rounded-xl hover:bg-[#1B3022] cursor-pointer inline-flex items-center gap-2 shadow-md"
+                >
+                  <span>+ Buat Konsultasi Sekarang</span>
+                </button>
+              </div>
+            ) : (
+              tickets.map((ticket) => {
               const currentStepIdx = getStepIndex(ticket.status);
 
               return (
@@ -559,10 +581,11 @@ export const SupportPage: React.FC = () => {
                   </div>
                 </div>
               );
-            })}
-          </div>
+            })
+          )}
         </div>
-      )}
+      </div>
+    )}
     </div>
   );
 };

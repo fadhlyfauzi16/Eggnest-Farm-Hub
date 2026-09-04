@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import QRCode from 'qrcode';
 import { useFarm } from '../context/FarmContext';
 import {
   Warehouse,
@@ -19,15 +21,96 @@ import {
   Trophy,
   ExternalLink,
   Copy,
+  CheckCircle2,
+  Award,
 } from 'lucide-react';
 
 export const FarmProfilePage: React.FC = () => {
-  const { farm, showToast } = useFarm();
+  const navigate = useNavigate();
+  const { farm, farmScore, setActivePage, showToast } = useFarm();
   const [showQrModal, setShowQrModal] = useState(false);
+  const [qrDataUrl, setQrDataUrl] = useState<string>('');
+
+  useEffect(() => {
+    if (farm?.farmCode) {
+      // Dynamic verification payload
+      const qrPayload = `${window.location.origin}/farm?code=${encodeURIComponent(farm.farmCode)}`;
+      QRCode.toDataURL(qrPayload, {
+        width: 300,
+        margin: 2,
+        color: {
+          dark: '#1B3022',
+          light: '#FFFFFF',
+        },
+      })
+        .then((url) => setQrDataUrl(url))
+        .catch((err) => console.error('Error generating QR code:', err));
+    }
+  }, [farm?.farmCode]);
 
   const copyFarmCode = () => {
     navigator.clipboard.writeText(farm.farmCode);
     showToast(`📋 Kode Kandang ${farm.farmCode} disalin ke clipboard!`);
+  };
+
+  const handleDownloadQr = () => {
+    if (!qrDataUrl) {
+      showToast('⚠️ QR Code belum siap diunduh.');
+      return;
+    }
+    const link = document.createElement('a');
+    link.href = qrDataUrl;
+    link.download = `QR-FARM-${farm.farmCode}.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast(`📥 File QR Code ${farm.farmCode}.png berhasil diunduh!`);
+  };
+
+  const handlePrintQr = () => {
+    if (!qrDataUrl) {
+      showToast('⚠️ QR Code belum siap dicetak.');
+      return;
+    }
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>Kartu Verifikasi QR Farm - ${farm.farmCode}</title>
+            <style>
+              body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; text-align: center; padding: 40px; color: #1B3022; }
+              .card { border: 2px solid #2D4A36; border-radius: 16px; max-width: 360px; margin: 0 auto; padding: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+              h2 { margin: 0 0 4px; color: #1B3022; font-size: 22px; }
+              .subtitle { font-size: 12px; color: #588157; font-weight: bold; margin-bottom: 16px; text-transform: uppercase; }
+              img { width: 220px; height: 220px; margin: 12px 0; border: 1px solid #EFECE6; border-radius: 12px; }
+              .code { font-size: 20px; font-weight: 900; letter-spacing: 2px; color: #1B3022; }
+              .info { font-size: 13px; color: #4B5563; margin-top: 8px; line-height: 1.5; }
+              @media print { button { display: none; } }
+            </style>
+          </head>
+          <body>
+            <div class="card">
+              <h2>EGGNEST FARM HUB</h2>
+              <div class="subtitle">KARTU VERIFIKASI DIGITAL KANDANG</div>
+              <img src="${qrDataUrl}" alt="QR Code ${farm.farmCode}" />
+              <div class="code">${farm.farmCode}</div>
+              <div class="info">
+                <strong>Pemilik:</strong> ${farm.ownerName || 'Mitra'}<br />
+                <strong>Lokasi:</strong> ${farm.location || 'Wilayah Mitra'}<br />
+                <strong>Populasi:</strong> ${farm.activeChickens} Ekor Layer
+              </div>
+            </div>
+            <script>
+              window.onload = function() { window.print(); };
+            </script>
+          </body>
+        </html>
+      `);
+      printWindow.document.close();
+      showToast('🖨️ Halaman cetak QR Code dibuka!');
+    }
   };
 
   return (
@@ -152,6 +235,36 @@ export const FarmProfilePage: React.FC = () => {
               </div>
             </div>
           </div>
+
+          {/* Farm Score Quick Card */}
+          <div className="p-5 rounded-2xl bg-[#FAF7F2] border border-[#EFECE6] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-[#2D4A36] text-[#FDFBF7] flex items-center justify-center font-black text-lg shadow-xs">
+                {farmScore.totalScore}
+              </div>
+              <div>
+                <span className="text-xs font-bold text-stone-500 uppercase tracking-wider">
+                  Farm Score Performa
+                </span>
+                <p className="text-base font-black text-[#1B3022] font-['Outfit'] flex items-center gap-2">
+                  Status: <span className="text-[#2D4A36]">{farmScore.statusText}</span>
+                </p>
+                <p className="text-xs text-stone-600">
+                  Disiplin Lapor: {farmScore.reportScore}/100 • Produksi: {farmScore.productionScore}/100
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                setActivePage('score');
+                navigate('/score');
+              }}
+              className="px-4 py-2.5 bg-[#2D4A36] hover:bg-[#1B3022] text-[#FDFBF7] font-bold text-xs rounded-xl transition-colors inline-flex items-center gap-1.5 cursor-pointer self-start sm:self-auto shadow-xs"
+            >
+              <Award className="w-4 h-4 text-[#D4AF37]" />
+              <span>Lihat Rincian Farm Score →</span>
+            </button>
+          </div>
         </div>
 
         {/* Right: QR Farm Card */}
@@ -168,61 +281,40 @@ export const FarmProfilePage: React.FC = () => {
 
             {/* Visual QR Code Display */}
             <div className="p-4 bg-[#FAF7F2] rounded-3xl border-2 border-dashed border-[#E5E1D8] shadow-inner flex flex-col items-center justify-center">
-              <div className="w-48 h-48 bg-[#1B3022] rounded-2xl p-3 relative flex items-center justify-center shadow-md">
-                {/* SVG Mock of Crisp Vector QR */}
-                <svg viewBox="0 0 100 100" className="w-full h-full fill-[#FDFBF7]">
-                  {/* Top-Left Corner Box */}
-                  <rect x="10" y="10" width="25" height="25" fill="#FDFBF7" rx="3" />
-                  <rect x="14" y="14" width="17" height="17" fill="#1B3022" rx="2" />
-                  <rect x="18" y="18" width="9" height="9" fill="#FDFBF7" rx="1" />
-
-                  {/* Top-Right Corner Box */}
-                  <rect x="65" y="10" width="25" height="25" fill="#FDFBF7" rx="3" />
-                  <rect x="69" y="14" width="17" height="17" fill="#1B3022" rx="2" />
-                  <rect x="73" y="18" width="9" height="9" fill="#FDFBF7" rx="1" />
-
-                  {/* Bottom-Left Corner Box */}
-                  <rect x="10" y="65" width="25" height="25" fill="#FDFBF7" rx="3" />
-                  <rect x="14" y="69" width="17" height="17" fill="#1B3022" rx="2" />
-                  <rect x="18" y="73" width="9" height="9" fill="#FDFBF7" rx="1" />
-
-                  {/* Data Dots & Matrix Patterns */}
-                  <rect x="42" y="12" width="6" height="6" />
-                  <rect x="52" y="12" width="6" height="6" />
-                  <rect x="42" y="24" width="6" height="6" />
-                  <rect x="48" y="32" width="6" height="6" />
-                  <rect x="12" y="42" width="6" height="6" />
-                  <rect x="24" y="48" width="6" height="6" />
-                  <rect x="40" y="45" width="20" height="20" fill="#D4AF37" rx="4" />
-                  <circle cx="50" cy="55" r="5" fill="#1B3022" />
-                  <rect x="68" y="42" width="6" height="6" />
-                  <rect x="80" y="48" width="6" height="6" />
-                  <rect x="42" y="70" width="6" height="6" />
-                  <rect x="52" y="78" width="6" height="6" />
-                  <rect x="68" y="68" width="8" height="8" />
-                  <rect x="80" y="76" width="6" height="6" />
-                </svg>
+              <div className="w-52 h-52 bg-white rounded-2xl p-2.5 relative flex items-center justify-center shadow-md border border-[#EFECE6]">
+                {qrDataUrl ? (
+                  <img
+                    src={qrDataUrl}
+                    alt={`QR Code ${farm.farmCode}`}
+                    className="w-full h-full object-contain rounded-xl"
+                  />
+                ) : (
+                  <div className="flex flex-col items-center justify-center text-stone-400">
+                    <QrCode className="w-12 h-12 animate-pulse" />
+                    <span className="text-xs mt-2 font-medium">Membuat QR Code...</span>
+                  </div>
+                )}
               </div>
 
               <span className="text-xs font-black text-[#1B3022] mt-3 font-['Outfit'] tracking-wider">
                 {farm.farmCode}
               </span>
               <p className="text-[11px] text-stone-500 mt-0.5">
-                Scan oleh Petugas Lapangan Eggnest
+                Scan untuk verifikasi resmi status kandang Eggnest
               </p>
             </div>
           </div>
 
           <div className="w-full pt-4 space-y-2">
             <button
-              onClick={() => showToast('🖨️ Mengirim instruksi cetak QR Farm...')}
+              onClick={handlePrintQr}
               className="w-full py-3 bg-[#2D4A36] hover:bg-[#1B3022] text-[#FDFBF7] font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
             >
               <Printer className="w-4 h-4" />
               Cetak QR Code Kandang
             </button>
             <button
-              onClick={() => showToast('📥 File QR Code berhasil diunduh!')}
+              onClick={handleDownloadQr}
               className="w-full py-2.5 bg-[#FAF7F2] hover:bg-[#EFECE6] text-[#1B3022] font-bold text-xs rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer border border-[#EFECE6]"
             >
               <Download className="w-4 h-4" />

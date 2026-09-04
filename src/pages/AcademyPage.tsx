@@ -24,6 +24,15 @@ export const AcademyPage: React.FC = () => {
   const [activeContent, setActiveContent] = useState<AcademyContent | null>(null);
   const [savedIds, setSavedIds] = useState<string[]>([]);
 
+  const getYoutubeEmbedUrl = (url?: string): string | null => {
+    if (!url) return null;
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+    const match = url.match(regExp);
+    return match && match[2].length === 11
+      ? `https://www.youtube-nocookie.com/embed/${match[2]}?autoplay=1&rel=0`
+      : null;
+  };
+
   const categories: { name: AcademyCategory | 'Semua'; icon: React.FC<{ className?: string }> }[] = [
     { name: 'Semua', icon: BookOpen },
     { name: 'Produksi Telur', icon: Egg },
@@ -267,21 +276,43 @@ export const AcademyPage: React.FC = () => {
 
             {/* Scrollable Content */}
             <div className="p-6 overflow-y-auto space-y-4">
-              {/* Media preview */}
-              <div className="relative aspect-video rounded-2xl overflow-hidden bg-stone-900 shadow-md">
-                <img
-                  src={activeContent.thumbnail}
-                  alt={activeContent.title}
-                  className="w-full h-full object-cover opacity-80"
-                />
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-white text-center p-4">
-                  <div className="w-16 h-16 rounded-full bg-[#D4AF37] text-[#1B3022] flex items-center justify-center mb-2 shadow-lg">
-                    <Play className="w-8 h-8 fill-current ml-1" />
-                  </div>
-                  <span className="text-sm font-bold font-['Outfit']">Panduan Edukasi Eggnest</span>
-                  <span className="text-xs text-white/80">Durasi: {activeContent.duration || '2 menit'}</span>
+              {/* Media preview / Embedded Video Player */}
+              {activeContent.type === 'video' && activeContent.videoUrl ? (
+                <div className="relative aspect-video rounded-2xl overflow-hidden bg-black shadow-md border border-[#2D4A36]">
+                  {getYoutubeEmbedUrl(activeContent.videoUrl) ? (
+                    <iframe
+                      src={getYoutubeEmbedUrl(activeContent.videoUrl)!}
+                      title={activeContent.title}
+                      className="w-full h-full border-0"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                      allowFullScreen
+                    />
+                  ) : (
+                    <video
+                      src={activeContent.videoUrl}
+                      poster={activeContent.thumbnail}
+                      controls
+                      autoPlay
+                      className="w-full h-full object-contain"
+                    >
+                      Browser Anda tidak mendukung pemutar video HTML5.
+                    </video>
+                  )}
                 </div>
-              </div>
+              ) : (
+                <div className="relative aspect-video rounded-2xl overflow-hidden bg-stone-900 shadow-md">
+                  <img
+                    src={activeContent.thumbnail}
+                    alt={activeContent.title}
+                    className="w-full h-full object-cover"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent flex items-end p-4">
+                    <span className="text-white text-xs font-bold bg-black/60 px-2.5 py-1 rounded-lg backdrop-blur-xs">
+                      📖 Durasi Baca: {activeContent.readTime || activeContent.duration || '3 menit'}
+                    </span>
+                  </div>
+                </div>
+              )}
 
               {/* Text Body */}
               <div className="text-stone-700 text-sm md:text-base leading-relaxed whitespace-pre-line">

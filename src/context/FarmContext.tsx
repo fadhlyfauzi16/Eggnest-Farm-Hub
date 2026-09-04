@@ -14,21 +14,9 @@ import {
   ChickenCondition,
   IssueType,
   AdminLog,
-  Chicken,
-  ChickenHealthReport,
 } from '../types';
-import {
-  DEFAULT_SETTINGS,
-  INITIAL_USERS,
-  INITIAL_FARMS,
-  INITIAL_REPORTS,
-  INITIAL_FARM_SCORE,
-  INITIAL_NOTIFICATIONS,
-  INITIAL_TICKETS,
-  ACADEMY_CONTENTS,
-  INITIAL_ADMIN_ALERTS,
-} from '../data/mockData';
-import { api, getStoredToken, getStoredUser, setStoredToken, setStoredUser } from '../services/api';
+import { DEFAULT_SETTINGS, INITIAL_FARM_SCORE } from '../data/mockData';
+import { api, getToken, removeToken } from '../services/api';
 
 export type ActivePage =
   | 'landing'
@@ -66,10 +54,10 @@ interface FarmContextType {
   setCurrentUser: (user: User | null) => void;
   users: User[];
   farms: Farm[];
-  farm: Farm; // active farm for current user / session
+  farm: Farm;
   setFarm: (farm: Farm) => void;
-  reports: DailyReport[]; // reports for current farm
-  allReports: DailyReport[]; // all reports in database
+  reports: DailyReport[];
+  allReports: DailyReport[];
   farmScore: FarmScore;
   tickets: SupportTicket[];
   academyContents: AcademyContent[];
@@ -77,21 +65,14 @@ interface FarmContextType {
   adminAlerts: AdminAlert[];
   settings: SystemSettings;
   adminLogs: AdminLog[];
-  chickens: Chicken[]; // chickens for active farm
-  allChickens: Chicken[]; // all chickens
-  fetchChickens: (farmId?: string) => Promise<Chicken[]>;
-  replaceChicken: (chickenId: string, data: { notes?: string; ageWeeks?: number }) => Promise<Chicken | null>;
-  selectedChickenId: string | null;
-  setSelectedChickenId: (id: string | null) => void;
   isLoading: boolean;
-  refreshData: () => Promise<void>;
-  
+
   isQuickReportOpen: boolean;
   setIsQuickReportOpen: (open: boolean) => void;
   textScale: TextScale;
   setTextScale: (scale: TextScale) => void;
-  
-  // Dynamic Calculations based on settings & database data
+
+  // Dynamic Calculations
   todayReport: DailyReport | undefined;
   todayEggCount: number;
   monthEggCount: number;
@@ -102,7 +83,7 @@ interface FarmContextType {
   estimatedEggValue: number;
   averageEggsPerDay: number;
   chickenCurrentAgeWeeks: number;
-  fcrRatio: number; // Feed Conversion Ratio
+  fcr: number | null;
 
   // Actions
   login: (params: LoginParams) => Promise<{ success: boolean; message: string }>;
@@ -119,14 +100,7 @@ interface FarmContextType {
     notes?: string;
     photoUrl?: string;
     videoUrl?: string;
-    chickenReports?: {
-      chickenId?: string;
-      chickenNumber?: number;
-      condition: 'HEALTHY' | 'SICK' | 'DEAD';
-      problemTypes?: string[];
-      customNotes?: string;
-    }[];
-  }) => Promise<{ success: boolean; productivity: number }>;
+  }) => Promise<{ success: boolean; productivity: number; fcr?: number }>;
 
   createSupportTicket: (ticket: {
     category: SupportCategory;
@@ -137,30 +111,50 @@ interface FarmContextType {
     videoUrl?: string;
   }) => Promise<SupportTicket | null>;
 
-  replyTicketMessage: (ticketId: string, message: string, attachmentUrl?: string) => Promise<void>;
+  replyTicketMessage: (ticketId: string, message: string) => Promise<void>;
   updateTicketStatus: (ticketId: string, status: SupportTicket['status'], adminNotes?: string) => Promise<void>;
-  
-  // Farm & Member Management
-  createFarm: (farmData: Partial<Farm>) => Promise<Farm | null>;
-  updateFarm: (farmId: string, farmData: Partial<Farm>) => Promise<void>;
-  createMember: (userData: Omit<User, 'id' | 'createdAt'>) => User;
-  updateMember: (userId: string, userData: Partial<User>) => void;
-  toggleMemberStatus: (userId: string) => void;
 
-  // Academy Management
+  createFarm: (farmData: {
+    ownerName?: string;
+    phone?: string;
+    location?: string;
+    initialChickens?: number;
+    chickenBreed?: string;
+    initialAgeWeeks?: number;
+  }) => Promise<Farm | null>;
+  updateFarm: (farmId: string, farmData: Partial<Farm>) => Promise<void>;
+
   createAcademyContent: (content: Partial<AcademyContent>) => Promise<void>;
   updateAcademyContent: (id: string, content: Partial<AcademyContent>) => Promise<void>;
   deleteAcademyContent: (id: string) => Promise<void>;
   togglePublishAcademy: (id: string) => Promise<void>;
+  toggleRecommendAcademy: (id: string) => Promise<void>;
 
-  // Settings & Alerts
+  downloadExportExcel: (type: 'members' | 'farms' | 'chickens' | 'reports' | 'scores' | 'tickets') => Promise<void>;
+  validateImport: (type: 'members' | 'farms' | 'chickens' | 'reports', rows: any[]) => Promise<{
+    success: boolean;
+    totalRows: number;
+    validCount: number;
+    invalidCount: number;
+    preview: any[];
+    errors: { row: number; reason: string }[];
+  }>;
+  commitImport: (type: 'members' | 'farms' | 'chickens' | 'reports', validRows: any[]) => Promise<{
+    success: boolean;
+    importedCount: number;
+    failedCount: number;
+    errors: any[];
+    message: string;
+  }>;
+
   updateSettings: (newSettings: Partial<SystemSettings>) => Promise<void>;
   resolveAdminAlert: (id: string) => Promise<void>;
   markNotificationRead: (id: string) => void;
-  
-  // Demo Reset / Seed Helpers
+  uploadPhoto: (file: File) => Promise<string>;
+
   resetToCleanDatabase: () => Promise<void>;
   loadDemoDatabase: () => Promise<void>;
+  refreshAllData: () => Promise<void>;
 
   toastMessage: string | null;
   showToast: (msg: string) => void;
@@ -169,132 +163,144 @@ interface FarmContextType {
 const FarmContext = createContext<FarmContextType | undefined>(undefined);
 
 export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Navigation & User session
   const [activePage, setActivePage] = useState<ActivePage>('landing');
-  const [currentUser, setCurrentUser] = useState<User | null>(() => getStoredUser() || INITIAL_USERS[0]);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [currentFarm, setCurrentFarm] = useState<Farm>({
+    id: 'farm-001',
+    farmCode: 'EN-000127',
+    ownerName: 'Budi Santoso',
+    phone: '081234567890',
+    location: 'Depok, Jawa Barat',
+    activationDate: '2026-07-20',
+    initialChickens: 12,
+    activeChickens: 12,
+    chickenBreed: 'Layer Lohmann Brown Petelur Unggul',
+    initialAgeWeeks: 18,
+    currentAgeWeeks: 24,
+    warrantyEnd: '2026-08-19',
+    status: 'active',
+    photoUrl: 'https://images.unsplash.com/photo-1548550023-2bdb3c5beed7?auto=format&fit=crop&w=1000&q=80',
+  });
+
+  const [farms, setFarms] = useState<Farm[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [allReports, setAllReports] = useState<DailyReport[]>([]);
+  const [tickets, setTickets] = useState<SupportTicket[]>([]);
+  const [academyContents, setAcademyContents] = useState<AcademyContent[]>([]);
+  const [adminAlerts, setAdminAlerts] = useState<AdminAlert[]>([]);
+  const [adminLogs, setAdminLogs] = useState<AdminLog[]>([]);
+  const [settings, setSettings] = useState<SystemSettings>(DEFAULT_SETTINGS);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+
   const [textScale, setTextScale] = useState<TextScale>('normal');
   const [isQuickReportOpen, setIsQuickReportOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Core State
-  const [settings, setSettings] = useState<SystemSettings>(DEFAULT_SETTINGS);
-  const [users, setUsers] = useState<User[]>(INITIAL_USERS);
-  const [farms, setFarms] = useState<Farm[]>(INITIAL_FARMS);
-  const [allReports, setAllReports] = useState<DailyReport[]>(INITIAL_REPORTS);
-  const [tickets, setTickets] = useState<SupportTicket[]>(INITIAL_TICKETS);
-  const [academyContents, setAcademyContents] = useState<AcademyContent[]>(ACADEMY_CONTENTS);
-  const [notifications, setNotifications] = useState<NotificationItem[]>(INITIAL_NOTIFICATIONS);
-  const [adminAlerts, setAdminAlerts] = useState<AdminAlert[]>(INITIAL_ADMIN_ALERTS);
-  const [adminLogs, setAdminLogs] = useState<AdminLog[]>([
-    {
-      id: 'log-1',
-      adminName: 'Admin Utama',
-      action: 'Aktivasi Farm EN-000127',
-      target: 'Budi Santoso',
-      timestamp: '2026-07-20 08:30',
-    },
-  ]);
-  const [farmScore, setFarmScore] = useState<FarmScore>(INITIAL_FARM_SCORE);
-  const [chickens, setChickens] = useState<Chicken[]>([]);
-  const [allChickens, setAllChickens] = useState<Chicken[]>([]);
-  const [selectedChickenId, setSelectedChickenId] = useState<string | null>(null);
-
-  // Active Farm for current logged in user
-  const currentFarm: Farm = useMemo(() => {
-    if (currentUser?.farmId) {
-      const found = farms.find((f) => f.id === currentUser.farmId);
-      if (found) return found;
-    }
-    return farms[0] || INITIAL_FARMS[0];
-  }, [currentUser, farms]);
-
-  const showToast = useCallback((msg: string) => {
+  const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => {
       setToastMessage(null);
     }, 4000);
-  }, []);
+  };
 
-  const fetchChickens = useCallback(async (farmId?: string) => {
-    const targetId = farmId || currentFarm?.id;
-    if (!targetId) return [];
+  // Load all data from real backend database
+  const refreshAllData = useCallback(async () => {
     try {
-      const res = await api.getChickens(targetId);
-      if (res?.success && res.chickens) {
-        setChickens(res.chickens);
-        return res.chickens;
-      }
-      return [];
-    } catch (e) {
-      console.warn('Failed to fetch chickens:', e);
-      return [];
-    }
-  }, [currentFarm?.id]);
+      setIsLoading(true);
 
-  // Fetch all live database state from Backend API
-  const refreshData = useCallback(async () => {
-    try {
-      // 1. Settings
-      const settingsRes = await api.getSettings().catch(() => null);
-      if (settingsRes?.settings) {
-        setSettings(settingsRes.settings);
-      }
+      // Load Settings
+      try {
+        const setRes = await api.getSettings();
+        if (setRes.success && setRes.settings) {
+          setSettings((prev) => ({ ...prev, ...setRes.settings }));
+        }
+      } catch (e) {}
 
-      // 2. Farms
-      const farmsRes = await api.getFarms().catch(() => null);
-      if (farmsRes?.farms && farmsRes.farms.length > 0) {
-        setFarms(farmsRes.farms);
-      }
-
-      // 3. Reports
-      const reportsRes = await api.getReports().catch(() => null);
-      if (reportsRes?.reports) {
-        setAllReports(reportsRes.reports);
-      }
-
-      // 4. Chickens for active farm
-      if (currentFarm?.id) {
-        const chkRes = await api.getChickens(currentFarm.id).catch(() => null);
-        if (chkRes?.chickens) {
-          setChickens(chkRes.chickens);
+      // Check current user session via JWT token
+      const token = getToken();
+      if (token) {
+        try {
+          const meRes = await api.getMe();
+          if (meRes.success && meRes.user) {
+            setCurrentUser(meRes.user);
+            if (meRes.farm) {
+              setCurrentFarm(meRes.farm);
+            }
+          }
+        } catch (err) {
+          // Token invalid or expired
+          removeToken();
+          setCurrentUser(null);
         }
       }
 
-      // 5. Tickets
-      const ticketsRes = await api.getTickets().catch(() => null);
-      if (ticketsRes?.tickets) {
-        setTickets(ticketsRes.tickets);
-      }
+      // Load Farms
+      try {
+        const farmsRes = await api.getFarms();
+        if (farmsRes.success && farmsRes.farms) {
+          setFarms(farmsRes.farms);
+          if (!currentUser?.farmId && farmsRes.farms.length > 0) {
+            const firstActive = farmsRes.farms.find((f) => f.status === 'active') || farmsRes.farms[0];
+            setCurrentFarm(firstActive);
+          }
+        }
+      } catch (e) {}
 
-      // 6. Academy Contents
-      const acadRes = await api.getAcademy().catch(() => null);
-      if (acadRes?.contents) {
-        setAcademyContents(acadRes.contents);
-      }
+      // Load Reports for current farm
+      const targetFarmId = currentUser?.farmId || currentFarm.id || 'farm-001';
+      try {
+        const reportsRes = await api.getReports(targetFarmId);
+        if (reportsRes.success && reportsRes.reports) {
+          setAllReports(reportsRes.reports);
+        }
+      } catch (e) {}
 
-      // 7. Alerts
-      const alertsRes = await api.getAlerts().catch(() => null);
-      if (alertsRes?.alerts) {
-        setAdminAlerts(alertsRes.alerts);
-      }
+      // Load Support Tickets
+      try {
+        const ticketsRes = await api.getTickets();
+        if (ticketsRes.success && ticketsRes.tickets) {
+          setTickets(ticketsRes.tickets);
+        }
+      } catch (e) {}
 
-      // 8. Admin Logs
-      const logsRes = await api.getAdminLogs().catch(() => null);
-      if (logsRes?.logs) {
-        setAdminLogs(logsRes.logs);
+      // Load Academy Content
+      try {
+        const acadRes = await api.getAcademy(true);
+        if (acadRes.success && acadRes.contents) {
+          setAcademyContents(acadRes.contents);
+        }
+      } catch (e) {}
+
+      // Load Alerts & Logs if Admin
+      if (currentUser?.role === 'admin') {
+        try {
+          const alertRes = await api.getAlerts();
+          if (alertRes.success && alertRes.alerts) {
+            setAdminAlerts(alertRes.alerts);
+          }
+        } catch (e) {}
+
+        try {
+          const logRes = await api.getAuditLogs();
+          if (logRes.success && logRes.logs) {
+            setAdminLogs(logRes.logs);
+          }
+        } catch (e) {}
       }
-    } catch (err) {
-      console.warn('Sync with database backend:', err);
+    } catch (error) {
+      console.error('Error refreshing backend data:', error);
+    } finally {
+      setIsLoading(false);
     }
-  }, [currentFarm?.id]);
+  }, [currentUser?.role, currentUser?.farmId, currentFarm.id]);
 
-  // Initial load
+  // Initial load on mount
   useEffect(() => {
-    refreshData();
-  }, [refreshData]);
+    refreshAllData();
+  }, [refreshAllData]);
 
-  // Reports for current active farm
+  // Reports for current farm
   const reports = useMemo(() => {
     return allReports
       .filter((r) => r.farmId === currentFarm.id)
@@ -303,9 +309,7 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Dynamic Age calculation from activation date & initial weeks
   const chickenCurrentAgeWeeks = useMemo(() => {
-    if (!currentFarm.activationDate || currentFarm.activationDate.includes('Belum')) {
-      return currentFarm.initialAgeWeeks || 18;
-    }
+    if (!currentFarm.activationDate) return currentFarm.initialAgeWeeks || 18;
     try {
       const actDate = new Date(currentFarm.activationDate);
       const now = new Date('2026-08-31');
@@ -317,20 +321,18 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [currentFarm]);
 
-  // Dynamic calculations for current farm
+  // Database-driven calculations
   const todayReport = reports.find((r) => r.date === '2026-08-31') || reports[reports.length - 1];
   const todayEggCount = todayReport ? todayReport.eggCount : 0;
   const todayFeedKg = todayReport ? todayReport.feedKg : 0;
 
   const augustReports = reports.filter((r) => r.date.startsWith('2026-08'));
-  const monthEggCount = augustReports.reduce((sum, r) => sum + r.eggCount, 0);
-  const monthFeedKg = Number(augustReports.reduce((sum, r) => sum + r.feedKg, 0).toFixed(1));
+  const monthEggCount = augustReports.reduce((sum, r) => sum + (r.eggCount || 0), 0);
+  const monthFeedKg = Number(augustReports.reduce((sum, r) => sum + (r.feedKg || 0), 0).toFixed(1));
   const averageEggsPerDay =
-    augustReports.length > 0
-      ? Number((monthEggCount / augustReports.length).toFixed(1))
-      : 0;
+    augustReports.length > 0 ? Number((monthEggCount / augustReports.length).toFixed(1)) : 0;
 
-  // Productivity = (todayEgg / activeChickens) * 100
+  // Productivity = (egg_count / active_chicken_count) * 100
   const activeChickens = currentFarm.activeChickens || 12;
   const productivityRate =
     todayReport && activeChickens > 0
@@ -343,86 +345,187 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
   else if (productivityRate >= 60) productivityStatus = 'Cukup';
   else productivityStatus = 'Perlu Perhatian';
 
-  // Egg value = (totalTelur / eggsPerKg) * pricePerKg from Admin Settings
+  // Egg Value = (total_eggs / eggs_per_kg) * egg_price_per_kg
   const eggsPerKg = settings.eggsPerKg || 16;
   const eggPricePerKg = settings.eggPricePerKg || 32000;
   const estimatedEggValue = Math.round((monthEggCount / eggsPerKg) * eggPricePerKg);
 
-  // FCR (Feed Conversion Ratio) = Total Feed Consumed (kg) / Total Egg Mass (kg)
-  // Egg Mass = Total Eggs / eggsPerKg (in kg)
-  const totalEggMassKg = monthEggCount > 0 ? monthEggCount / eggsPerKg : 0;
-  const fcrRatio = totalEggMassKg > 0 && monthFeedKg > 0 ? Number((monthFeedKg / totalEggMassKg).toFixed(2)) : 0;
+  // FCR Calculation: Total Feed (kg) / Total Egg Mass (kg)
+  const fcr = useMemo(() => {
+    if (monthEggCount > 0 && monthFeedKg > 0) {
+      const totalEggMassKg = monthEggCount / eggsPerKg;
+      return Number((monthFeedKg / totalEggMassKg).toFixed(2));
+    }
+    return null;
+  }, [monthEggCount, monthFeedKg, eggsPerKg]);
 
-  // 1. Authentication: LOGIN
+  // Dynamic Farm Score calculation based on real farm reports & health
+  const farmScore: FarmScore = useMemo(() => {
+    const farmReports = reports;
+
+    // 1. Production Score (0 - 100)
+    const avgProd =
+      farmReports.length > 0
+        ? farmReports.reduce((acc, r) => acc + (r.productivityRate || 0), 0) / farmReports.length
+        : productivityRate || 75;
+    const productionScore = Math.min(100, Math.max(20, Math.round((avgProd / 85) * 90)));
+
+    // 2. Report Score (0 - 100)
+    const reportScore = Math.min(
+      100,
+      Math.max(30, Math.round(farmReports.length >= 7 ? 95 : farmReports.length > 0 ? 60 + farmReports.length * 5 : 50))
+    );
+
+    // 3. Maintenance Score (0 - 100)
+    const daysWithFeed = farmReports.filter((r) => r.feedKg > 0).length;
+    const maintenanceScore =
+      farmReports.length > 0
+        ? Math.min(100, Math.max(40, Math.round((daysWithFeed / farmReports.length) * 95)))
+        : 88;
+
+    // 4. Health Score (0 - 100)
+    const healthyDays = farmReports.filter((r) => r.chickenCondition === 'healthy').length;
+    const healthRatio = farmReports.length > 0 ? healthyDays / farmReports.length : 1;
+    const mortality = Math.max(0, (currentFarm.initialChickens || 12) - (currentFarm.activeChickens || 12));
+    const healthScore = Math.min(100, Math.max(30, Math.round(healthRatio * 95 - mortality * 5)));
+
+    // Total Score (Weighted average: 35% prod + 25% report + 20% maintenance + 20% health)
+    const totalScore = Math.round(
+      productionScore * 0.35 +
+      reportScore * 0.25 +
+      maintenanceScore * 0.20 +
+      healthScore * 0.20
+    );
+
+    let statusText: 'SANGAT BAIK' | 'BAIK' | 'CUKUP' | 'PERLU PERBAIKAN' = 'BAIK';
+    if (totalScore >= 85) statusText = 'SANGAT BAIK';
+    else if (totalScore >= 70) statusText = 'BAIK';
+    else if (totalScore >= 55) statusText = 'CUKUP';
+    else statusText = 'PERLU PERBAIKAN';
+
+    // Streak Days
+    const sortedDates = Array.from(new Set<string>(farmReports.map((r) => r.date))).sort().reverse();
+    let streak = 0;
+    if (sortedDates.length > 0) {
+      streak = 1;
+      for (let i = 0; i < sortedDates.length - 1; i++) {
+        const d1 = new Date(sortedDates[i]).getTime();
+        const d2 = new Date(sortedDates[i + 1]).getTime();
+        const diffDays = Math.round((d1 - d2) / (1000 * 60 * 60 * 24));
+        if (diffDays === 1) {
+          streak++;
+        } else {
+          break;
+        }
+      }
+    }
+
+    const badges = [
+      {
+        id: 'badge-1',
+        icon: '🥚',
+        title: 'Mitra Telur Unggul',
+        description: `Produktivitas kandang ${currentFarm.farmCode} rata-rata mencapai ${Math.round(avgProd)}%`,
+        earnedDate: currentFarm.activationDate || '2026-08-01',
+      },
+      {
+        id: 'badge-2',
+        icon: '⭐',
+        title: 'Disiplin Pelaporan',
+        description: `${farmReports.length} laporan terekam rapi di sistem Eggnest`,
+        earnedDate: farmReports[0]?.date || '2026-08-05',
+      },
+      {
+        id: 'badge-3',
+        icon: '🛡️',
+        title: 'Garansi Bebas Risiko',
+        description: `Populasi ${currentFarm.activeChickens} ekor ayam aktif terjaga prima`,
+        earnedDate: currentFarm.warrantyEnd || '2026-08-20',
+      },
+    ];
+
+    return {
+      id: `score-${currentFarm.id}`,
+      farmId: currentFarm.id,
+      productionScore,
+      reportScore,
+      maintenanceScore,
+      healthScore,
+      totalScore,
+      statusText,
+      streakDays: streak,
+      badges,
+      updatedAt: new Date().toISOString(),
+    };
+  }, [currentFarm, reports, productivityRate]);
+
+  // Actions
   const login = async (params: LoginParams) => {
     try {
-      setIsLoading(true);
       const res = await api.login(params);
-      if (res.success) {
+      if (res.success && res.user) {
         setCurrentUser(res.user);
-        if (params.role === 'admin') {
+        if (res.farm) {
+          setCurrentFarm(res.farm);
+        }
+        if (res.user.role === 'admin') {
           setActivePage('admin');
         } else {
           setActivePage('beranda');
         }
-        showToast(`✅ ${res.message}`);
-        await refreshData();
+        showToast(res.message);
+        await refreshAllData();
         return { success: true, message: res.message };
       }
       return { success: false, message: res.message || 'Login gagal.' };
     } catch (err: any) {
-      return { success: false, message: err.message || 'Terjadi kesalahan saat login.' };
-    } finally {
-      setIsLoading(false);
+      return { success: false, message: err.message || 'Gagal terhubung ke database server.' };
     }
   };
 
-  // 2. Authentication: REGISTER MEMBER
   const registerMember = async (params: RegisterParams) => {
     try {
-      setIsLoading(true);
       const res = await api.register(params);
-      if (res.success) {
+      if (res.success && res.user) {
         setCurrentUser(res.user);
+        if (res.farm) {
+          setCurrentFarm(res.farm);
+        }
         setActivePage('beranda');
-        showToast(`🎉 ${res.message}`);
-        await refreshData();
+        showToast(res.message);
+        await refreshAllData();
         return { success: true, message: res.message };
       }
       return { success: false, message: res.message || 'Registrasi gagal.' };
     } catch (err: any) {
-      return { success: false, message: err.message || 'Gagal mendaftar. Periksa Farm ID Anda.' };
-    } finally {
-      setIsLoading(false);
+      return { success: false, message: err.message || 'Gagal mendaftarkan user ke database.' };
     }
   };
 
   const logout = () => {
-    api.logout();
+    removeToken();
     setCurrentUser(null);
     setActivePage('landing');
     showToast('Anda telah keluar dari aplikasi.');
   };
 
-  // Admin Impersonation
   const impersonateFarm = async (farmId: string) => {
     try {
-      setIsLoading(true);
-      const res = await api.impersonate({ farmId });
-      if (res.success) {
+      const res = await api.impersonate(farmId);
+      if (res.success && res.user) {
         setCurrentUser(res.user);
+        if (res.farm) {
+          setCurrentFarm(res.farm);
+        }
         setActivePage('beranda');
         showToast(res.message);
-        await refreshData();
+        await refreshAllData();
       }
     } catch (err: any) {
-      showToast(err.message || 'Gagal melakukan impersonasi.');
-    } finally {
-      setIsLoading(false);
+      showToast(`⚠️ ${err.message || 'Gagal impersonasi kandang.'}`);
     }
   };
 
-  // 3. Add / Edit Daily Report
   const addDailyReport = async (data: {
     date: string;
     eggCount: number;
@@ -432,57 +535,22 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
     notes?: string;
     photoUrl?: string;
     videoUrl?: string;
-    chickenReports?: {
-      chickenId?: string;
-      chickenNumber?: number;
-      condition: 'HEALTHY' | 'SICK' | 'DEAD';
-      problemTypes?: string[];
-      customNotes?: string;
-    }[];
   }) => {
     try {
-      const res = await api.saveReport({
+      const res = await api.saveDailyReport({
+        ...data,
         farmId: currentFarm.id,
-        date: data.date,
-        eggCount: data.eggCount,
-        feedKg: data.feedKg,
-        chickenCondition: data.chickenCondition,
-        issueTypes: data.issueTypes,
-        notes: data.notes,
-        photoUrl: data.photoUrl,
-        videoUrl: data.videoUrl,
-        chickenReports: data.chickenReports,
       });
 
-      if (res.success) {
-        showToast(res.message);
-        await refreshData();
-        return { success: true, productivity: res.productivity };
-      }
-      return { success: false, productivity: 0 };
+      showToast(`✅ Laporan ${data.date} tersimpan ke database! Produksi: ${data.eggCount} butir (${res.productivity}%)`);
+      await refreshAllData();
+      return { success: true, productivity: res.productivity, fcr: res.fcr };
     } catch (err: any) {
-      showToast(err.message || 'Gagal menyimpan laporan.');
+      showToast(`⚠️ Gagal menyimpan laporan: ${err.message}`);
       return { success: false, productivity: 0 };
     }
   };
 
-  // 3B. Replace Chicken
-  const replaceChicken = async (chickenId: string, data: { notes?: string; ageWeeks?: number }) => {
-    try {
-      const res = await api.replaceChicken(chickenId, data);
-      if (res.success) {
-        showToast(res.message);
-        await refreshData();
-        return res.chicken;
-      }
-      return null;
-    } catch (err: any) {
-      showToast(err.message || 'Gagal memproses penggantian ayam.');
-      return null;
-    }
-  };
-
-  // 4. Support Ticket
   const createSupportTicket = async (data: {
     category: SupportCategory;
     title: string;
@@ -493,58 +561,53 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }) => {
     try {
       const res = await api.createTicket(data);
-      if (res.success) {
+      if (res.success && res.ticket) {
         showToast(res.message);
-        await refreshData();
+        await refreshAllData();
         return res.ticket;
       }
       return null;
     } catch (err: any) {
-      showToast(err.message || 'Gagal membuat tiket konsultasi.');
+      showToast(`⚠️ Gagal membuat tiket: ${err.message}`);
       return null;
     }
   };
 
-  const replyTicketMessage = async (ticketId: string, message: string, attachmentUrl?: string) => {
+  const replyTicketMessage = async (ticketId: string, message: string) => {
     try {
-      const res = await api.replyTicket(ticketId, message, attachmentUrl);
-      if (res.success) {
-        showToast('Pesan balasan tiket terkirim.');
-        await refreshData();
-      }
+      const res = await api.replyTicket(ticketId, message);
+      showToast(res.message);
+      await refreshAllData();
     } catch (err: any) {
-      showToast(err.message || 'Gagal mengirim balasan tiket.');
+      showToast(`⚠️ Gagal membalas tiket: ${err.message}`);
     }
   };
 
-  const updateTicketStatus = async (
-    ticketId: string,
-    status: SupportTicket['status'],
-    adminNotes?: string
-  ) => {
+  const updateTicketStatus = async (ticketId: string, status: SupportTicket['status'], adminNotes?: string) => {
     try {
       const res = await api.updateTicketStatus(ticketId, status, adminNotes);
-      if (res.success) {
-        showToast(`Status tiket diperbarui menjadi: ${status}`);
-        await refreshData();
-      }
+      showToast(res.message);
+      await refreshAllData();
     } catch (err: any) {
-      showToast(err.message || 'Gagal memperbarui status tiket.');
+      showToast(`⚠️ Gagal update tiket: ${err.message}`);
     }
   };
 
-  // 5. Farm Management
-  const createFarm = async (farmData: Partial<Farm>) => {
+  const createFarm = async (farmData: {
+    ownerName?: string;
+    phone?: string;
+    location?: string;
+    initialChickens?: number;
+    chickenBreed?: string;
+    initialAgeWeeks?: number;
+  }) => {
     try {
       const res = await api.createFarm(farmData);
-      if (res.success) {
-        showToast(`✅ Kandang baru ${res.farm.farmCode} berhasil didaftarkan.`);
-        await refreshData();
-        return res.farm;
-      }
-      return null;
+      showToast(res.message);
+      await refreshAllData();
+      return res.farm;
     } catch (err: any) {
-      showToast(err.message || 'Gagal membuat data kandang baru.');
+      showToast(`⚠️ Gagal membuat farm: ${err.message}`);
       return null;
     }
   };
@@ -552,144 +615,140 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const updateFarm = async (farmId: string, farmData: Partial<Farm>) => {
     try {
       const res = await api.updateFarm(farmId, farmData);
-      if (res.success) {
-        showToast('Data kandang berhasil diperbarui.');
-        await refreshData();
-      }
+      showToast(res.message);
+      await refreshAllData();
     } catch (err: any) {
-      showToast(err.message || 'Gagal memperbarui data kandang.');
+      showToast(`⚠️ Gagal memperbarui farm: ${err.message}`);
     }
   };
 
-  // Member Management
-  const createMember = (userData: Omit<User, 'id' | 'createdAt'>) => {
-    const newUser: User = {
-      ...userData,
-      id: `user-${Date.now()}`,
-      createdAt: new Date().toISOString(),
-    };
-    setUsers((prev) => [...prev, newUser]);
-    showToast(`Member ${newUser.fullName} berhasil ditambahkan.`);
-    return newUser;
-  };
-
-  const updateMember = (userId: string, userData: Partial<User>) => {
-    setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, ...userData } : u)));
-    showToast('Data member berhasil diperbarui.');
-  };
-
-  const toggleMemberStatus = (userId: string) => {
-    setUsers((prev) =>
-      prev.map((u) =>
-        u.id === userId ? { ...u, status: u.status === 'active' ? 'inactive' : 'active' } : u
-      )
-    );
-    showToast('Status keaktifan member diperbarui.');
-  };
-
-  // 6. Academy CMS
   const createAcademyContent = async (content: Partial<AcademyContent>) => {
     try {
       const res = await api.createAcademy(content);
-      if (res.success) {
-        showToast('Materi Academy baru berhasil ditambahkan.');
-        await refreshData();
-      }
+      showToast(res.message);
+      await refreshAllData();
     } catch (err: any) {
-      showToast(err.message || 'Gagal menambahkan materi academy.');
+      showToast(`⚠️ Gagal membuat materi: ${err.message}`);
     }
   };
 
   const updateAcademyContent = async (id: string, content: Partial<AcademyContent>) => {
     try {
       const res = await api.updateAcademy(id, content);
-      if (res.success) {
-        showToast('Materi Academy diperbarui.');
-        await refreshData();
-      }
+      showToast(res.message);
+      await refreshAllData();
     } catch (err: any) {
-      showToast(err.message || 'Gagal memperbarui materi academy.');
+      showToast(`⚠️ Gagal update materi: ${err.message}`);
     }
   };
 
   const deleteAcademyContent = async (id: string) => {
     try {
       const res = await api.deleteAcademy(id);
-      if (res.success) {
-        showToast(res.message);
-        await refreshData();
-      }
+      showToast(res.message);
+      await refreshAllData();
     } catch (err: any) {
-      showToast(err.message || 'Gagal menghapus materi academy.');
+      showToast(`⚠️ Gagal hapus materi: ${err.message}`);
     }
   };
 
   const togglePublishAcademy = async (id: string) => {
     try {
       const res = await api.togglePublishAcademy(id);
-      if (res.success) {
-        showToast(res.published ? 'Materi dipublikasikan ke member.' : 'Materi ditarik (unpublish).');
-        await refreshData();
-      }
+      showToast(res.message);
+      await refreshAllData();
     } catch (err: any) {
-      showToast(err.message || 'Gagal mengubah status publish.');
+      showToast(`⚠️ Gagal ubah status materi: ${err.message}`);
     }
   };
 
-  // 7. Settings & Alerts
+  const toggleRecommendAcademy = async (id: string) => {
+    try {
+      const res = await api.toggleRecommendAcademy(id);
+      showToast(res.message);
+      await refreshAllData();
+    } catch (err: any) {
+      showToast(`⚠️ Gagal ubah rekomendasi materi: ${err.message}`);
+    }
+  };
+
+  const downloadExportExcel = async (type: 'members' | 'farms' | 'chickens' | 'reports' | 'scores' | 'tickets') => {
+    try {
+      showToast(`Menyiapkan file Excel ${type.toUpperCase()}...`);
+      await api.downloadExportExcel(type);
+      showToast(`File Excel ${type.toUpperCase()} berhasil diunduh.`);
+    } catch (err: any) {
+      showToast(`⚠️ Gagal mengunduh Excel: ${err.message}`);
+    }
+  };
+
+  const validateImport = async (type: 'members' | 'farms' | 'chickens' | 'reports', rows: any[]) => {
+    try {
+      return await api.validateImport(type, rows);
+    } catch (err: any) {
+      showToast(`⚠️ Validasi gagal: ${err.message}`);
+      throw err;
+    }
+  };
+
+  const commitImport = async (type: 'members' | 'farms' | 'chickens' | 'reports', validRows: any[]) => {
+    try {
+      const res = await api.commitImport(type, validRows);
+      showToast(res.message);
+      await refreshAllData();
+      return res;
+    } catch (err: any) {
+      showToast(`⚠️ Import gagal: ${err.message}`);
+      throw err;
+    }
+  };
+
   const updateSettings = async (newSettings: Partial<SystemSettings>) => {
     try {
       const res = await api.updateSettings(newSettings);
-      if (res.success) {
-        setSettings(res.settings);
-        showToast('Pengaturan sistem berhasil disimpan.');
-        await refreshData();
-      }
+      showToast(res.message);
+      await refreshAllData();
     } catch (err: any) {
-      showToast(err.message || 'Gagal menyimpan pengaturan.');
+      showToast(`⚠️ Gagal menyimpan pengaturan: ${err.message}`);
     }
   };
 
   const resolveAdminAlert = async (id: string) => {
     try {
       const res = await api.resolveAlert(id);
-      if (res.success) {
-        showToast('Smart alert ditandai selesai.');
-        await refreshData();
-      }
+      showToast(res.message);
+      await refreshAllData();
     } catch (err: any) {
-      showToast(err.message || 'Gagal menandai alert.');
+      showToast(`⚠️ Gagal menyelesaikan alert: ${err.message}`);
     }
   };
 
   const markNotificationRead = (id: string) => {
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, read: true } : n))
-    );
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
   };
 
-  // 8. Reset & Demo Seeding
+  const uploadPhoto = async (file: File): Promise<string> => {
+    const res = await api.uploadFile(file);
+    return res.url;
+  };
+
   const resetToCleanDatabase = async () => {
     try {
-      const res = await api.resetCleanDatabase();
-      if (res.success) {
-        showToast('Database dikosongkan (Empty State mode aktif).');
-        await refreshData();
-      }
+      const res = await api.resetClean();
+      showToast(res.message);
+      await refreshAllData();
     } catch (err: any) {
-      showToast(err.message || 'Gagal mengosongkan database.');
+      showToast(`⚠️ Gagal reset database: ${err.message}`);
     }
   };
 
   const loadDemoDatabase = async () => {
     try {
-      const res = await api.seedDemoDatabase();
-      if (res.success) {
-        showToast('Data demo berhasil dimuat ke database.');
-        await refreshData();
-      }
+      const res = await api.seedDemo();
+      showToast(res.message);
+      await refreshAllData();
     } catch (err: any) {
-      showToast(err.message || 'Gagal memuat demo database.');
+      showToast(`⚠️ Gagal memuat data demo: ${err.message}`);
     }
   };
 
@@ -703,9 +762,7 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
         users,
         farms,
         farm: currentFarm,
-        setFarm: (newFarm) => {
-          setFarms((prev) => prev.map((f) => (f.id === newFarm.id ? newFarm : f)));
-        },
+        setFarm: (newFarm) => setCurrentFarm(newFarm),
         reports,
         allReports,
         farmScore,
@@ -715,14 +772,7 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
         adminAlerts,
         settings,
         adminLogs,
-        chickens,
-        allChickens,
-        fetchChickens,
-        replaceChicken,
-        selectedChickenId,
-        setSelectedChickenId,
         isLoading,
-        refreshData,
         isQuickReportOpen,
         setIsQuickReportOpen,
         textScale,
@@ -737,7 +787,7 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
         estimatedEggValue,
         averageEggsPerDay,
         chickenCurrentAgeWeeks,
-        fcrRatio,
+        fcr,
         login,
         registerMember,
         logout,
@@ -748,18 +798,21 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updateTicketStatus,
         createFarm,
         updateFarm,
-        createMember,
-        updateMember,
-        toggleMemberStatus,
         createAcademyContent,
         updateAcademyContent,
         deleteAcademyContent,
         togglePublishAcademy,
+        toggleRecommendAcademy,
+        downloadExportExcel,
+        validateImport,
+        commitImport,
         updateSettings,
         resolveAdminAlert,
         markNotificationRead,
+        uploadPhoto,
         resetToCleanDatabase,
         loadDemoDatabase,
+        refreshAllData,
         toastMessage,
         showToast,
       }}

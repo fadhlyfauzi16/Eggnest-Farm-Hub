@@ -62,33 +62,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login', onBac
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Quick Demo Autofill helpers
-  const autofillMemberDemo = () => {
-    setMode('login');
-    setLoginRole('member');
-    setMemberPhone('081234567890');
-    setMemberPassword('password123');
-    setErrorMessage(null);
-  };
-
-  const autofillAdminDemo = () => {
-    setMode('login');
-    setLoginRole('admin');
-    setAdminIdentifier('admin@eggnest.id');
-    setAdminPassword('admin123');
-    setErrorMessage(null);
-  };
-
-  const autofillNewRegistrationDemo = () => {
-    setMode('register');
-    setRegFullName('Ahmad Dahlan');
-    setRegPhone('081299112233');
-    setRegPassword('pass1234');
-    setRegConfirmPassword('pass1234');
-    setRegFarmCode('EN-000128'); // Available unactivated farm
-    setErrorMessage(null);
-  };
-
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
@@ -439,7 +412,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login', onBac
                     required
                     value={regFullName}
                     onChange={(e) => setRegFullName(e.target.value)}
-                    placeholder="Contoh: Budi Santoso"
+                    placeholder="Contoh: Bapak Ahmad / Ibu Siti"
                     className="w-full pl-10 pr-4 py-3 bg-[#FAF7F2] border border-[#EFECE6] rounded-2xl text-sm font-semibold text-[#1B3022] focus:outline-none focus:ring-2 focus:ring-[#2D4A36] focus:bg-white"
                   />
                 </div>
@@ -483,7 +456,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login', onBac
                     required
                     value={regFarmCode}
                     onChange={(e) => setRegFarmCode(e.target.value.toUpperCase())}
-                    placeholder="Contoh: EN-000128"
+                    placeholder="Contoh: EN-000001"
                     className="w-full pl-9 pr-4 py-2.5 bg-white border border-[#CDE3D3] rounded-xl text-sm font-mono font-bold text-[#1B3022] uppercase tracking-wider focus:outline-none focus:ring-2 focus:ring-[#2D4A36]"
                   />
                 </div>
@@ -554,41 +527,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login', onBac
               </div>
             </form>
           )}
-
-          {/* Quick Demo Selector Box (For easy review & testing) */}
-          <div className="pt-4 border-t border-[#EFECE6] bg-[#FAF7F2] -mx-6 -mb-8 p-6 space-y-2.5">
-            <span className="text-[10px] font-black tracking-wider text-stone-500 uppercase flex items-center gap-1">
-              <Sparkles className="w-3 h-3 text-[#D4AF37]" /> Pintasan Pengujian Demo:
-            </span>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={autofillMemberDemo}
-                className="p-2 text-left bg-white hover:bg-stone-50 border border-[#EFECE6] rounded-xl text-[11px] font-bold text-[#1B3022] transition-colors cursor-pointer shadow-2xs"
-              >
-                👤 Member Demo (Budi)
-                <span className="block font-normal text-[10px] text-stone-500">EN-000127</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={autofillAdminDemo}
-                className="p-2 text-left bg-white hover:bg-stone-50 border border-[#EFECE6] rounded-xl text-[11px] font-bold text-[#1B3022] transition-colors cursor-pointer shadow-2xs"
-              >
-                🛡️ Admin Control
-                <span className="block font-normal text-[10px] text-stone-500">admin@eggnest.id</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={autofillNewRegistrationDemo}
-                className="p-2 text-left bg-white hover:bg-stone-50 border border-[#EFECE6] rounded-xl text-[11px] font-bold text-[#1B3022] transition-colors cursor-pointer shadow-2xs"
-              >
-                ✨ Register Baru
-                <span className="block font-normal text-[10px] text-stone-500">Klaim EN-000128</span>
-              </button>
-            </div>
-          </div>
         </div>
       </div>
     </div>
