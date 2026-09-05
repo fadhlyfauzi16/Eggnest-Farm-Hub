@@ -399,15 +399,19 @@ router.get('/dashboard', requireAuth, async (req: AuthRequest, res) => {
     );
 
     const activeChickens = farm.active_chickens || 12;
-    const todayStr = '2026-08-31';
+    const nowLocal = new Date();
+    const todayStr = `${nowLocal.getFullYear()}-${String(nowLocal.getMonth() + 1).padStart(2, '0')}-${String(
+      nowLocal.getDate()
+    ).padStart(2, '0')}`;
+    const currentMonthPrefix = todayStr.slice(0, 7);
 
-    // Today's report (or latest)
-    const todayReport = reports.find((r) => r.report_date === todayStr) || reports[reports.length - 1];
+    // Today's report must be today's persisted report, not a stale "latest" fallback.
+    const todayReport = reports.find((r) => r.report_date === todayStr);
     const todayEggCount = todayReport ? todayReport.egg_count : 0;
     const todayFeedKg = todayReport ? todayReport.feed_kg : 0;
 
-    // Current month reports (August 2026)
-    const monthReports = reports.filter((r) => r.report_date.startsWith('2026-08'));
+    // Current month reports
+    const monthReports = reports.filter((r) => String(r.report_date).startsWith(currentMonthPrefix));
     const monthEggCount = monthReports.reduce((acc, r) => acc + (r.egg_count || 0), 0);
     const monthFeedKg = Number(monthReports.reduce((acc, r) => acc + (r.feed_kg || 0), 0).toFixed(1));
 
@@ -439,9 +443,12 @@ router.get('/dashboard', requireAuth, async (req: AuthRequest, res) => {
 
     // Chart data 30 days
     const chartData = reports.slice(-30).map((r) => {
-      const day = r.report_date.split('-')[2];
+      const [year, month, day] = String(r.report_date).split('-').map(Number);
+      const label = new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'short' }).format(
+        new Date(year, (month || 1) - 1, day || 1)
+      );
       return {
-        day: `${parseInt(day, 10)} Agu`,
+        day: label,
         tanggal: r.report_date,
         telur: r.egg_count,
         pakan: r.feed_kg,
@@ -481,21 +488,31 @@ router.get('/dashboard', requireAuth, async (req: AuthRequest, res) => {
 router.get('/reports', requireAuth, async (req: AuthRequest, res) => {
   try {
     const db = await getDb();
-    const farmId = (req.query.farmId as string) || req.user?.farmId;
+    const requestedFarmId = req.query.farmId as string | undefined;
 
+    // Admin without farmId needs all reports for Control Center.
+    if (req.user?.role === 'admin' && !requestedFarmId) {
+      const reports = queryAll<any>(
+        db,
+        `SELECT * FROM daily_reports ORDER BY report_date DESC, created_at DESC`
+      );
+      return res.json({ success: true, reports });
+    }
+
+    const farmId = requestedFarmId || req.user?.farmId;
     if (!farmId) {
       return res.status(400).json({ success: false, message: 'Farm ID wajib disertakan.' });
     }
 
     const reports = queryAll<any>(
       db,
-      `SELECT * FROM daily_reports WHERE farm_id = ? ORDER BY report_date ASC`,
+      `SELECT * FROM daily_reports WHERE farm_id = ? ORDER BY report_date DESC`,
       [farmId]
     );
 
-    res.json({ success: true, reports });
+    return res.json({ success: true, reports });
   } catch (err) {
-    res.status(500).json({ success: false, message: 'Gagal memuat laporan harian.' });
+    return res.status(500).json({ success: false, message: 'Gagal memuat laporan harian.' });
   }
 });
 
@@ -811,6 +828,13 @@ router.post('/tickets', requireAuth, async (req: AuthRequest, res) => {
     const user = queryOne<any>(db, `SELECT * FROM users WHERE id = ?`, [req.user!.id]);
     const farm = user?.farm_id ? queryOne<any>(db, `SELECT * FROM farms WHERE id = ?`, [user.farm_id]) : null;
 
+    if (req.user?.role !== 'admin' && !farm) {
+      return res.status(400).json({
+        success: false,
+        message: 'Akun belum terhubung ke Farm ID yang valid. Tiket tidak dapat dibuat.',
+      });
+    }
+
     if (!description || !description.trim()) {
       return res.status(400).json({ success: false, message: 'Deskripsi keluhan wajib diisi.' });
     }
@@ -827,8 +851,8 @@ router.post('/tickets', requireAuth, async (req: AuthRequest, res) => {
       [
         ticketId,
         randomCode,
-        farm?.id || 'farm-001',
-        farm?.farm_code || 'EN-000127',
+        farm?.id || null,
+        farm?.farm_code || null,
         user?.id,
         user?.full_name || 'Peternak Eggnest',
         category || 'Lainnya',

@@ -21,12 +21,32 @@ import {
 import confetti from 'canvas-confetti';
 import { ChickenHealthPicker, ChickenHealthItem } from '../components/common/ChickenHealthPicker';
 
+const localDateKey = (value: Date = new Date()): string => {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const formatLongDateId = (dateKey: string): string => {
+  if (!dateKey) return '-';
+  const [year, month, day] = dateKey.split('-').map(Number);
+  const value = new Date(year, (month || 1) - 1, day || 1);
+  return new Intl.DateTimeFormat('id-ID', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  }).format(value);
+};
+
+
 export const DailyReportPage: React.FC = () => {
   const { farm, reports, addDailyReport, textScale } = useFarm();
 
   const totalChickensCount = farm.activeChickens || 12;
 
-  const [date, setDate] = useState('2026-08-31');
+  const [date, setDate] = useState<string>(() => localDateKey());
   const [eggCount, setEggCount] = useState<number>(10);
   const [feedKg, setFeedKg] = useState<number>(1.2);
   const [chickenCondition, setChickenCondition] = useState<ChickenCondition>('healthy');
@@ -102,8 +122,13 @@ export const DailyReportPage: React.FC = () => {
         photoUrl: photoPreview || undefined,
       });
 
+      if (!res.success) {
+        setSavedSuccess(false);
+        return;
+      }
+
       const prod =
-        res.productivity || Math.round((eggCount / (farm.activeChickens || 12)) * 100);
+        res.productivity || Math.round((eggCount / Math.max(1, farm.activeChickens || 0)) * 100);
       setLastStats({ eggs: eggCount, prod });
       setSavedSuccess(true);
 
@@ -139,7 +164,9 @@ export const DailyReportPage: React.FC = () => {
           <span className="px-3 py-1 bg-[#EAF2EC] text-[#1B3022] text-xs font-bold rounded-full border border-[#CDE3D3]">
             Input Cepat 20–30 Detik
           </span>
-          <span className="text-xs text-stone-500 font-medium">Farm ID: {farm.farmCode}</span>
+          {farm.farmCode && (
+            <span className="text-xs text-stone-500 font-medium">Farm ID: {farm.farmCode}</span>
+          )}
         </div>
         <h1 className="text-2xl md:text-3xl lg:text-4xl font-extrabold text-[#1B3022] font-['Outfit'] tracking-tight mt-1">
           Lapor Hasil Hari Ini
@@ -207,7 +234,7 @@ export const DailyReportPage: React.FC = () => {
                 Tanggal Laporan
               </label>
               <div className="text-base sm:text-lg font-bold text-[#1B3022] font-['Outfit'] mt-0.5">
-                Senin, 31 Agustus 2026
+                {formatLongDateId(date)}
               </div>
             </div>
 

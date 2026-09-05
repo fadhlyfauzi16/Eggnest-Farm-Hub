@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useFarm } from '../../context/FarmContext';
 import { EggnestLogo } from '../common/EggnestLogo';
 import {
@@ -10,7 +10,6 @@ import {
   ZoomIn,
   Menu,
   X,
-  ShieldCheck,
   Plus,
   LogOut,
 } from 'lucide-react';
@@ -37,7 +36,6 @@ export const Header: React.FC<HeaderProps> = ({
   } = useFarm();
 
   const navigate = useNavigate();
-  const location = useLocation();
 
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const unreadCount = notifications.filter((n) => !n.read).length;
@@ -55,19 +53,15 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   const handleLogoClick = () => {
+    if (currentUser?.role === 'admin') {
+      setActivePage('admin');
+      navigate('/admin');
+      return;
+    }
     setActivePage('beranda');
     navigate('/home');
   };
 
-  const handleAdminToggle = () => {
-    if (location.pathname === '/admin') {
-      setActivePage('beranda');
-      navigate('/home');
-    } else {
-      setActivePage('admin');
-      navigate('/admin');
-    }
-  };
 
   const handleLogout = () => {
     logout();
@@ -104,15 +98,19 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Desktop Farm ID tag */}
-        <div className="hidden lg:flex items-center gap-2 pl-3 border-l border-[#EFECE6]">
-          <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-[#EAF2EC] text-[#1B3022] border border-[#CDE3D3]">
-            {farm.location}
-          </span>
-          <span className="text-xs text-stone-500 font-medium">
-            Farm ID: <strong className="text-[#1B3022] font-mono">{farm.farmCode}</strong>
-          </span>
-        </div>
+        {/* Farm identity is shown only to the actual member session */}
+        {currentUser?.role === 'member' && farm.id && farm.farmCode && (
+          <div className="hidden lg:flex items-center gap-2 pl-3 border-l border-[#EFECE6]">
+            {farm.location && (
+              <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-[#EAF2EC] text-[#1B3022] border border-[#CDE3D3]">
+                {farm.location}
+              </span>
+            )}
+            <span className="text-xs text-stone-500 font-medium">
+              Farm ID: <strong className="text-[#1B3022] font-mono">{farm.farmCode}</strong>
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Right Controls */}
@@ -142,19 +140,6 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="hidden sm:inline">{getScaleLabel()}</span>
           <span className="sm:hidden font-black">A+</span>
         </button>
-
-        {/* Switch to Admin / Member */}
-        {currentUser?.role === 'admin' ? (
-          <button
-            type="button"
-            id="header-admin-switch-btn"
-            onClick={handleAdminToggle}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-[#1B3022] text-[#D4AF37] border border-[#1B3022] transition-all cursor-pointer shadow-2xs touch-manipulation"
-          >
-            <ShieldCheck className="w-3.5 h-3.5" />
-            <span>{location.pathname === '/admin' ? 'Dashboard Member' : 'Admin Panel'}</span>
-          </button>
-        ) : null}
 
         {/* Notifications Dropdown */}
         <div className="relative">
@@ -246,8 +231,13 @@ export const Header: React.FC<HeaderProps> = ({
           <div
             className="hidden sm:flex flex-col text-right cursor-pointer"
             onClick={() => {
-              setActivePage('profil');
-              navigate('/profile');
+              if (currentUser?.role === 'admin') {
+                setActivePage('admin');
+                navigate('/admin');
+              } else {
+                setActivePage('profil');
+                navigate('/profile');
+              }
             }}
           >
             <span className="text-xs font-bold text-[#1B3022] leading-none hover:underline">

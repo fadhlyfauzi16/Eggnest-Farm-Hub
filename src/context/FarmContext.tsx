@@ -15,7 +15,7 @@ import {
   IssueType,
   AdminLog,
 } from '../types';
-import { DEFAULT_SETTINGS, INITIAL_FARM_SCORE } from '../data/mockData';
+import { DEFAULT_SETTINGS } from '../data/mockData';
 import { api, getToken, removeToken } from '../services/api';
 
 export type ActivePage =
@@ -115,6 +115,7 @@ interface FarmContextType {
   updateTicketStatus: (ticketId: string, status: SupportTicket['status'], adminNotes?: string) => Promise<void>;
 
   createFarm: (farmData: {
+    farmCode?: string;
     ownerName?: string;
     phone?: string;
     location?: string;
@@ -162,25 +163,101 @@ interface FarmContextType {
 
 const FarmContext = createContext<FarmContextType | undefined>(undefined);
 
+const EMPTY_FARM: Farm = {
+  id: '',
+  farmCode: '',
+  ownerName: '',
+  phone: '',
+  location: '',
+  activationDate: '',
+  initialChickens: 0,
+  activeChickens: 0,
+  chickenBreed: '',
+  initialAgeWeeks: 0,
+  currentAgeWeeks: 0,
+  warrantyEnd: '',
+  status: 'unclaimed',
+  photoUrl: '',
+};
+
+const normalizeUser = (raw: any): User =>
+  ({
+    ...raw,
+    id: String(raw?.id ?? ''),
+    phone: String(raw?.phone ?? ''),
+    email: raw?.email ?? undefined,
+    fullName: String(raw?.fullName ?? raw?.full_name ?? ''),
+    role: raw?.role ?? 'member',
+    status: raw?.status ?? 'active',
+    farmId: raw?.farmId ?? raw?.farm_id ?? undefined,
+    createdAt: raw?.createdAt ?? raw?.created_at ?? undefined,
+    updatedAt: raw?.updatedAt ?? raw?.updated_at ?? undefined,
+  } as User);
+
+const normalizeFarm = (raw: any): Farm =>
+  ({
+    ...raw,
+    id: String(raw?.id ?? ''),
+    farmCode: String(raw?.farmCode ?? raw?.farm_code ?? ''),
+    ownerName: String(raw?.ownerName ?? raw?.owner_name ?? ''),
+    phone: String(raw?.phone ?? ''),
+    location: String(raw?.location ?? ''),
+    activationDate: String(raw?.activationDate ?? raw?.activation_date ?? ''),
+    initialChickens: Number(raw?.initialChickens ?? raw?.initial_chickens ?? 0),
+    activeChickens: Number(raw?.activeChickens ?? raw?.active_chickens ?? 0),
+    chickenBreed: String(raw?.chickenBreed ?? raw?.chicken_breed ?? ''),
+    initialAgeWeeks: Number(raw?.initialAgeWeeks ?? raw?.initial_age_weeks ?? 0),
+    currentAgeWeeks: Number(raw?.currentAgeWeeks ?? raw?.current_age_weeks ?? 0),
+    warrantyEnd: String(raw?.warrantyEnd ?? raw?.warranty_end ?? ''),
+    status: raw?.status ?? 'unclaimed',
+    photoUrl: String(raw?.photoUrl ?? raw?.photo_url ?? ''),
+    userId: raw?.userId ?? raw?.ownerUserId ?? raw?.owner_user_id ?? undefined,
+    ownerUserId: raw?.ownerUserId ?? raw?.owner_user_id ?? undefined,
+    createdAt: raw?.createdAt ?? raw?.created_at ?? undefined,
+    updatedAt: raw?.updatedAt ?? raw?.updated_at ?? undefined,
+  } as Farm);
+
+const normalizeReport = (raw: any): DailyReport =>
+  ({
+    ...raw,
+    id: String(raw?.id ?? ''),
+    farmId: String(raw?.farmId ?? raw?.farm_id ?? ''),
+    date: String(raw?.date ?? raw?.reportDate ?? raw?.report_date ?? ''),
+    eggCount: Number(raw?.eggCount ?? raw?.egg_count ?? 0),
+    feedKg: Number(raw?.feedKg ?? raw?.feed_kg ?? 0),
+    chickenCondition: raw?.chickenCondition ?? raw?.chicken_condition ?? 'healthy',
+    issueTypes:
+      raw?.issueTypes ??
+      (typeof raw?.issue_types === 'string'
+        ? (() => {
+            try {
+              return JSON.parse(raw.issue_types);
+            } catch {
+              return [];
+            }
+          })()
+        : raw?.issue_types ?? []),
+    notes: raw?.notes ?? undefined,
+    photoUrl: raw?.photoUrl ?? raw?.photo_url ?? undefined,
+    videoUrl: raw?.videoUrl ?? raw?.video_url ?? undefined,
+    productivityRate: Number(raw?.productivityRate ?? raw?.productivity_rate ?? 0),
+    fcr: raw?.fcr == null ? null : Number(raw.fcr),
+    createdAt: raw?.createdAt ?? raw?.created_at ?? undefined,
+    updatedAt: raw?.updatedAt ?? raw?.updated_at ?? undefined,
+  } as DailyReport);
+
+const localDateKey = (value: Date = new Date()): string => {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+
 export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [activePage, setActivePage] = useState<ActivePage>('landing');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [currentFarm, setCurrentFarm] = useState<Farm>({
-    id: 'farm-001',
-    farmCode: 'EN-000127',
-    ownerName: 'Budi Santoso',
-    phone: '081234567890',
-    location: 'Depok, Jawa Barat',
-    activationDate: '2026-07-20',
-    initialChickens: 12,
-    activeChickens: 12,
-    chickenBreed: 'Layer Lohmann Brown Petelur Unggul',
-    initialAgeWeeks: 18,
-    currentAgeWeeks: 24,
-    warrantyEnd: '2026-08-19',
-    status: 'active',
-    photoUrl: 'https://images.unsplash.com/photo-1548550023-2bdb3c5beed7?auto=format&fit=crop&w=1000&q=80',
-  });
+  const [currentFarm, setCurrentFarm] = useState<Farm>(EMPTY_FARM);
 
   const [farms, setFarms] = useState<Farm[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -204,107 +281,146 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }, 4000);
   };
 
-  // Load all data from real backend database
+  // Load all data from the real backend database.
+  // Important: this function uses the session returned by /auth/me in the same call,
+  // so it does not depend on stale React state after login/register.
   const refreshAllData = useCallback(async () => {
     try {
       setIsLoading(true);
 
-      // Load Settings
       try {
         const setRes = await api.getSettings();
         if (setRes.success && setRes.settings) {
           setSettings((prev) => ({ ...prev, ...setRes.settings }));
         }
-      } catch (e) {}
+      } catch {}
 
-      // Check current user session via JWT token
       const token = getToken();
-      if (token) {
-        try {
-          const meRes = await api.getMe();
-          if (meRes.success && meRes.user) {
-            setCurrentUser(meRes.user);
-            if (meRes.farm) {
-              setCurrentFarm(meRes.farm);
-            }
-          }
-        } catch (err) {
-          // Token invalid or expired
-          removeToken();
-          setCurrentUser(null);
-        }
+      if (!token) {
+        setCurrentUser(null);
+        setCurrentFarm(EMPTY_FARM);
+        setFarms([]);
+        setAllReports([]);
+        setTickets([]);
+        setAdminAlerts([]);
+        setAdminLogs([]);
+        return;
       }
 
-      // Load Farms
+      let sessionUser: User | null = null;
+      let sessionFarm: Farm = EMPTY_FARM;
+
+      try {
+        const meRes = await api.getMe();
+        if (!meRes.success || !meRes.user) {
+          throw new Error('Session tidak valid');
+        }
+
+        sessionUser = normalizeUser(meRes.user);
+        setCurrentUser(sessionUser);
+
+        if (meRes.farm) {
+          sessionFarm = normalizeFarm(meRes.farm);
+          setCurrentFarm(sessionFarm);
+        } else {
+          setCurrentFarm(EMPTY_FARM);
+        }
+      } catch {
+        removeToken();
+        setCurrentUser(null);
+        setCurrentFarm(EMPTY_FARM);
+        setFarms([]);
+        setAllReports([]);
+        return;
+      }
+
       try {
         const farmsRes = await api.getFarms();
         if (farmsRes.success && farmsRes.farms) {
-          setFarms(farmsRes.farms);
-          if (!currentUser?.farmId && farmsRes.farms.length > 0) {
-            const firstActive = farmsRes.farms.find((f) => f.status === 'active') || farmsRes.farms[0];
-            setCurrentFarm(firstActive);
+          const normalizedFarms = farmsRes.farms.map(normalizeFarm);
+          setFarms(normalizedFarms);
+
+          if (sessionUser.role === 'member') {
+            const ownFarm =
+              normalizedFarms.find((f) => f.id === sessionUser?.farmId) ||
+              normalizedFarms.find((f) => f.id === sessionFarm.id);
+
+            if (ownFarm) {
+              sessionFarm = ownFarm;
+              setCurrentFarm(ownFarm);
+            }
           }
         }
-      } catch (e) {}
+      } catch {}
 
-      // Load Reports for current farm
-      const targetFarmId = currentUser?.farmId || currentFarm.id || 'farm-001';
+      // Admin receives all reports. Member receives only their own farm reports.
       try {
-        const reportsRes = await api.getReports(targetFarmId);
-        if (reportsRes.success && reportsRes.reports) {
-          setAllReports(reportsRes.reports);
-        }
-      } catch (e) {}
+        const reportsRes =
+          sessionUser.role === 'admin'
+            ? await api.getReports()
+            : sessionFarm.id
+            ? await api.getReports(sessionFarm.id)
+            : { success: true, reports: [] as DailyReport[] };
 
-      // Load Support Tickets
+        if (reportsRes.success && reportsRes.reports) {
+          setAllReports(reportsRes.reports.map(normalizeReport));
+        } else {
+          setAllReports([]);
+        }
+      } catch {
+        setAllReports([]);
+      }
+
       try {
         const ticketsRes = await api.getTickets();
         if (ticketsRes.success && ticketsRes.tickets) {
           setTickets(ticketsRes.tickets);
         }
-      } catch (e) {}
+      } catch {}
 
-      // Load Academy Content
       try {
         const acadRes = await api.getAcademy(true);
         if (acadRes.success && acadRes.contents) {
           setAcademyContents(acadRes.contents);
         }
-      } catch (e) {}
+      } catch {}
 
-      // Load Alerts & Logs if Admin
-      if (currentUser?.role === 'admin') {
+      if (sessionUser.role === 'admin') {
         try {
           const alertRes = await api.getAlerts();
           if (alertRes.success && alertRes.alerts) {
             setAdminAlerts(alertRes.alerts);
           }
-        } catch (e) {}
+        } catch {}
 
         try {
           const logRes = await api.getAuditLogs();
           if (logRes.success && logRes.logs) {
             setAdminLogs(logRes.logs);
           }
-        } catch (e) {}
+        } catch {}
+      } else {
+        setAdminAlerts([]);
+        setAdminLogs([]);
       }
     } catch (error) {
       console.error('Error refreshing backend data:', error);
     } finally {
       setIsLoading(false);
     }
-  }, [currentUser?.role, currentUser?.farmId, currentFarm.id]);
+  }, []);
 
   // Initial load on mount
   useEffect(() => {
     refreshAllData();
   }, [refreshAllData]);
 
-  // Reports for current farm
+  // Reports for the currently logged-in member farm
   const reports = useMemo(() => {
+    if (!currentFarm.id) return [];
     return allReports
       .filter((r) => r.farmId === currentFarm.id)
-      .sort((a, b) => a.date.localeCompare(b.date));
+      .sort((a, b) => b.date.localeCompare(a.date));
   }, [allReports, currentFarm.id]);
 
   // Dynamic Age calculation from activation date & initial weeks
@@ -312,7 +428,7 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!currentFarm.activationDate) return currentFarm.initialAgeWeeks || 18;
     try {
       const actDate = new Date(currentFarm.activationDate);
-      const now = new Date('2026-08-31');
+      const now = new Date();
       const diffTime = Math.abs(now.getTime() - actDate.getTime());
       const diffWeeks = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 7));
       return (currentFarm.initialAgeWeeks || 18) + diffWeeks;
@@ -321,16 +437,22 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [currentFarm]);
 
-  // Database-driven calculations
-  const todayReport = reports.find((r) => r.date === '2026-08-31') || reports[reports.length - 1];
+  // Database-driven calculations using the actual local date
+  const todayKey = localDateKey();
+  const currentMonthKey = todayKey.slice(0, 7);
+  const todayReport = reports.find((r) => r.date === todayKey);
   const todayEggCount = todayReport ? todayReport.eggCount : 0;
   const todayFeedKg = todayReport ? todayReport.feedKg : 0;
 
-  const augustReports = reports.filter((r) => r.date.startsWith('2026-08'));
-  const monthEggCount = augustReports.reduce((sum, r) => sum + (r.eggCount || 0), 0);
-  const monthFeedKg = Number(augustReports.reduce((sum, r) => sum + (r.feedKg || 0), 0).toFixed(1));
+  const currentMonthReports = reports.filter((r) => r.date.startsWith(currentMonthKey));
+  const monthEggCount = currentMonthReports.reduce((sum, r) => sum + (r.eggCount || 0), 0);
+  const monthFeedKg = Number(
+    currentMonthReports.reduce((sum, r) => sum + (r.feedKg || 0), 0).toFixed(1)
+  );
   const averageEggsPerDay =
-    augustReports.length > 0 ? Number((monthEggCount / augustReports.length).toFixed(1)) : 0;
+    currentMonthReports.length > 0
+      ? Number((monthEggCount / currentMonthReports.length).toFixed(1))
+      : 0;
 
   // Productivity = (egg_count / active_chicken_count) * 100
   const activeChickens = currentFarm.activeChickens || 12;
@@ -464,11 +586,12 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const res = await api.login(params);
       if (res.success && res.user) {
-        setCurrentUser(res.user);
+        const normalizedUser = normalizeUser(res.user);
+        setCurrentUser(normalizedUser);
         if (res.farm) {
-          setCurrentFarm(res.farm);
+          setCurrentFarm(normalizeFarm(res.farm));
         }
-        if (res.user.role === 'admin') {
+        if (normalizedUser.role === 'admin') {
           setActivePage('admin');
         } else {
           setActivePage('beranda');
@@ -487,9 +610,9 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const res = await api.register(params);
       if (res.success && res.user) {
-        setCurrentUser(res.user);
+        setCurrentUser(normalizeUser(res.user));
         if (res.farm) {
-          setCurrentFarm(res.farm);
+          setCurrentFarm(normalizeFarm(res.farm));
         }
         setActivePage('beranda');
         showToast(res.message);
@@ -505,6 +628,12 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = () => {
     removeToken();
     setCurrentUser(null);
+    setCurrentFarm(EMPTY_FARM);
+    setFarms([]);
+    setAllReports([]);
+    setTickets([]);
+    setAdminAlerts([]);
+    setAdminLogs([]);
     setActivePage('landing');
     showToast('Anda telah keluar dari aplikasi.');
   };
@@ -513,9 +642,9 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const res = await api.impersonate(farmId);
       if (res.success && res.user) {
-        setCurrentUser(res.user);
+        setCurrentUser(normalizeUser(res.user));
         if (res.farm) {
-          setCurrentFarm(res.farm);
+          setCurrentFarm(normalizeFarm(res.farm));
         }
         setActivePage('beranda');
         showToast(res.message);
@@ -537,13 +666,25 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
     videoUrl?: string;
   }) => {
     try {
+      if (!currentFarm.id || !currentFarm.farmCode) {
+        throw new Error('Farm ID belum terhubung ke akun ini. Silakan login ulang atau hubungi Admin Eggnest.');
+      }
+
       const res = await api.saveDailyReport({
         ...data,
         farmId: currentFarm.id,
       });
 
-      showToast(`✅ Laporan ${data.date} tersimpan ke database! Produksi: ${data.eggCount} butir (${res.productivity}%)`);
-      await refreshAllData();
+      // Fetch again from database immediately so History updates from persisted data,
+      // not from temporary frontend state.
+      const reportsRes = await api.getReports(currentFarm.id);
+      if (reportsRes.success) {
+        setAllReports(reportsRes.reports.map(normalizeReport));
+      }
+
+      showToast(
+        `✅ Laporan ${data.date} tersimpan ke database! Produksi: ${data.eggCount} butir (${res.productivity}%)`
+      );
       return { success: true, productivity: res.productivity, fcr: res.fcr };
     } catch (err: any) {
       showToast(`⚠️ Gagal menyimpan laporan: ${err.message}`);
@@ -594,6 +735,7 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const createFarm = async (farmData: {
+    farmCode?: string;
     ownerName?: string;
     phone?: string;
     location?: string;
