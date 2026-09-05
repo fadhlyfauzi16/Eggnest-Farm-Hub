@@ -55,9 +55,7 @@ export const AdminPage: React.FC = () => {
     updateSettings,
     resetToCleanDatabase,
     loadDemoDatabase,
-    impersonateFarm,
     showToast,
-    setActivePage,
   } = useFarm();
 
   const [activeTab, setActiveTab] = useState<'kandang' | 'alerts' | 'tickets' | 'academy' | 'pengaturan'>('kandang');
@@ -540,11 +538,11 @@ Ketik HAPUS untuk melanjutkan.`
                 <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#E5E1D8]">
                   {f.userId && (
                     <button
-                      onClick={() => impersonateFarm(f.id)}
+                      onClick={() => setSelectedFarmModal(f)}
                       className="px-3 py-1.5 bg-[#EAF2EC] hover:bg-[#CDE3D3] text-[#1B3022] font-bold text-xs rounded-xl flex items-center gap-1 cursor-pointer"
                     >
                       <Eye className="w-3.5 h-3.5" />
-                      <span>Buka Dashboard</span>
+                      <span>Buka Detail</span>
                     </button>
                   )}
                   {f.phone && (
@@ -622,9 +620,9 @@ Ketik HAPUS untuk melanjutkan.`
                       <div className="flex items-center justify-end gap-1.5">
                         {f.userId && (
                           <button
-                            onClick={() => impersonateFarm(f.id)}
+                            onClick={() => setSelectedFarmModal(f)}
                             className="px-3 py-1.5 bg-[#EAF2EC] hover:bg-[#CDE3D3] text-[#1B3022] font-bold text-xs rounded-xl flex items-center gap-1 cursor-pointer"
-                            title="Buka tampilan dashboard member ini"
+                            title="Buka detail kandang tanpa masuk ke akun member"
                           >
                             <Eye className="w-3.5 h-3.5" />
                             <span>Buka</span>
@@ -974,6 +972,287 @@ Ketik HAPUS untuk melanjutkan.`
           </div>
         </div>
       )}
+
+
+      {/* MODAL: ADMIN FARM DETAIL
+          Admin tetap berada di sesi Administrator. Tidak ada impersonation / pergantian akun. */}
+      {selectedFarmModal && (() => {
+        const farmReports = allReports
+          .filter((r: any) => String(r.farmId ?? r.farm_id ?? '') === String(selectedFarmModal.id))
+          .map((r: any) => ({
+            ...r,
+            id: String(r.id ?? ''),
+            date: String(r.date ?? r.report_date ?? ''),
+            eggCount: Number(r.eggCount ?? r.egg_count ?? 0),
+            feedKg: Number(r.feedKg ?? r.feed_kg ?? 0),
+            productivityRate: Number(r.productivityRate ?? r.productivity_rate ?? 0),
+            chickenCondition: String(r.chickenCondition ?? r.chicken_condition ?? 'healthy'),
+            notes: String(r.notes ?? ''),
+          }))
+          .sort((a: any, b: any) => b.date.localeCompare(a.date));
+
+        const latestReport = farmReports[0];
+        const totalEggs = farmReports.reduce(
+          (sum: number, r: any) => sum + Number(r.eggCount || 0),
+          0
+        );
+        const avgEggs =
+          farmReports.length > 0
+            ? Number((totalEggs / farmReports.length).toFixed(1))
+            : 0;
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+            <div className="bg-[#FDFBF7] rounded-3xl shadow-2xl border border-[#EFECE6] w-full max-w-5xl max-h-[92vh] overflow-y-auto">
+              <div className="sticky top-0 z-10 bg-[#1B3022] text-[#FDFBF7] p-5 sm:p-6 rounded-t-3xl flex items-start justify-between gap-4">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[10px] font-black bg-[#D4AF37] text-[#1B3022] px-2.5 py-1 rounded-full uppercase tracking-wider">
+                      Detail Kandang
+                    </span>
+                    <span className="text-xs text-[#EAF2EC]/80">
+                      Admin tetap login sebagai Administrator
+                    </span>
+                  </div>
+
+                  <h3 className="text-xl sm:text-2xl font-black font-['Outfit'] mt-2">
+                    {selectedFarmModal.farmCode}
+                  </h3>
+
+                  <p className="text-sm text-[#EAF2EC] mt-0.5">
+                    {selectedFarmModal.ownerName || 'Belum diklaim member'}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedFarmModal(null)}
+                  className="w-9 h-9 rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center font-black cursor-pointer"
+                  aria-label="Tutup detail kandang"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="p-4 sm:p-6 space-y-6">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                  <div className="bg-white rounded-2xl border border-[#EFECE6] p-4">
+                    <span className="text-[10px] uppercase tracking-wider text-stone-500 font-bold">
+                      Status
+                    </span>
+                    <p className="font-black text-[#1B3022] mt-1 capitalize">
+                      {selectedFarmModal.status === 'active'
+                        ? '🟢 Aktif'
+                        : selectedFarmModal.status === 'warning'
+                        ? '🟡 Warning'
+                        : selectedFarmModal.status === 'critical'
+                        ? '🔴 Kritis'
+                        : '⚪ Belum Diklaim'}
+                    </p>
+                  </div>
+
+                  <div className="bg-white rounded-2xl border border-[#EFECE6] p-4">
+                    <span className="text-[10px] uppercase tracking-wider text-stone-500 font-bold">
+                      Ayam Aktif
+                    </span>
+                    <p className="text-2xl font-black text-[#1B3022] mt-1">
+                      {selectedFarmModal.activeChickens || 0}
+                    </p>
+                    <span className="text-[10px] text-stone-500">ekor</span>
+                  </div>
+
+                  <div className="bg-white rounded-2xl border border-[#EFECE6] p-4">
+                    <span className="text-[10px] uppercase tracking-wider text-stone-500 font-bold">
+                      Total Laporan
+                    </span>
+                    <p className="text-2xl font-black text-[#1B3022] mt-1">
+                      {farmReports.length}
+                    </p>
+                    <span className="text-[10px] text-stone-500">catatan</span>
+                  </div>
+
+                  <div className="bg-white rounded-2xl border border-[#EFECE6] p-4">
+                    <span className="text-[10px] uppercase tracking-wider text-stone-500 font-bold">
+                      Rata-rata Telur
+                    </span>
+                    <p className="text-2xl font-black text-[#2D4A36] mt-1">
+                      {avgEggs}
+                    </p>
+                    <span className="text-[10px] text-stone-500">
+                      butir / laporan
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div className="bg-white rounded-2xl border border-[#EFECE6] p-5 space-y-3">
+                    <h4 className="font-black text-[#1B3022] font-['Outfit']">
+                      Identitas Member
+                    </h4>
+
+                    <div className="grid grid-cols-[110px_1fr] gap-y-2 text-xs">
+                      <span className="text-stone-500">Nama</span>
+                      <strong className="text-stone-800">
+                        {selectedFarmModal.ownerName || '-'}
+                      </strong>
+
+                      <span className="text-stone-500">WhatsApp</span>
+                      <strong className="text-stone-800">
+                        {selectedFarmModal.phone || '-'}
+                      </strong>
+
+                      <span className="text-stone-500">Lokasi</span>
+                      <strong className="text-stone-800">
+                        {selectedFarmModal.location || '-'}
+                      </strong>
+
+                      <span className="text-stone-500">Farm ID</span>
+                      <strong className="font-mono text-[#1B3022]">
+                        {selectedFarmModal.farmCode || '-'}
+                      </strong>
+                    </div>
+
+                    {selectedFarmModal.phone && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleContactMember(
+                            selectedFarmModal.ownerName || 'Member',
+                            selectedFarmModal.phone
+                          )
+                        }
+                        className="w-full mt-2 px-4 py-2.5 bg-[#EAF2EC] hover:bg-[#CDE3D3] text-[#1B3022] font-bold text-xs rounded-xl flex items-center justify-center gap-2 cursor-pointer"
+                      >
+                        <Phone className="w-4 h-4" />
+                        Hubungi Member
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="bg-white rounded-2xl border border-[#EFECE6] p-5 space-y-3">
+                    <h4 className="font-black text-[#1B3022] font-['Outfit']">
+                      Data Kandang
+                    </h4>
+
+                    <div className="grid grid-cols-[120px_1fr] gap-y-2 text-xs">
+                      <span className="text-stone-500">Ras</span>
+                      <strong className="text-stone-800">
+                        {selectedFarmModal.chickenBreed ??
+                          selectedFarmModal.chicken_breed ??
+                          '-'}
+                      </strong>
+
+                      <span className="text-stone-500">Umur Ayam</span>
+                      <strong className="text-stone-800">
+                        {selectedFarmModal.currentAgeWeeks ??
+                          selectedFarmModal.current_age_weeks ??
+                          0}{' '}
+                        minggu
+                      </strong>
+
+                      <span className="text-stone-500">Tanggal Aktivasi</span>
+                      <strong className="text-stone-800">
+                        {selectedFarmModal.activationDate ??
+                          selectedFarmModal.activation_date ??
+                          '-'}
+                      </strong>
+
+                      <span className="text-stone-500">Garansi</span>
+                      <strong className="text-stone-800">
+                        {selectedFarmModal.warrantyEnd ??
+                          selectedFarmModal.warranty_end ??
+                          '-'}
+                      </strong>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-2xl border border-[#EFECE6] overflow-hidden">
+                  <div className="p-4 sm:p-5 border-b border-[#EFECE6] flex items-center justify-between gap-3">
+                    <div>
+                      <h4 className="font-black text-[#1B3022] font-['Outfit']">
+                        Riwayat Laporan Member
+                      </h4>
+                      <p className="text-xs text-stone-500 mt-0.5">
+                        Admin membaca data kandang tanpa masuk ke akun member.
+                      </p>
+                    </div>
+
+                    {latestReport && (
+                      <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-[#EAF2EC] text-[#1B3022] border border-[#CDE3D3] whitespace-nowrap">
+                        Terakhir: {latestReport.date}
+                      </span>
+                    )}
+                  </div>
+
+                  {farmReports.length === 0 ? (
+                    <div className="p-8 text-center">
+                      <p className="font-bold text-stone-700">
+                        Belum ada laporan kandang.
+                      </p>
+                      <p className="text-xs text-stone-500 mt-1">
+                        Setelah member menyimpan laporan, datanya akan muncul di sini.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[700px] text-left text-xs">
+                        <thead>
+                          <tr className="bg-[#FAF7F2] text-stone-500 uppercase tracking-wider">
+                            <th className="px-4 py-3">Tanggal</th>
+                            <th className="px-4 py-3">Telur</th>
+                            <th className="px-4 py-3">Pakan</th>
+                            <th className="px-4 py-3">Produktivitas</th>
+                            <th className="px-4 py-3">Kondisi</th>
+                            <th className="px-4 py-3">Catatan</th>
+                          </tr>
+                        </thead>
+
+                        <tbody className="divide-y divide-[#EFECE6]">
+                          {farmReports.slice(0, 30).map((report: any) => (
+                            <tr key={report.id} className="hover:bg-[#FAF7F2]">
+                              <td className="px-4 py-3 font-bold text-[#1B3022]">
+                                {report.date}
+                              </td>
+                              <td className="px-4 py-3">
+                                {report.eggCount} butir
+                              </td>
+                              <td className="px-4 py-3">
+                                {report.feedKg} kg
+                              </td>
+                              <td className="px-4 py-3 font-bold">
+                                {report.productivityRate || 0}%
+                              </td>
+                              <td className="px-4 py-3">
+                                {report.chickenCondition === 'healthy'
+                                  ? '🟢 Sehat'
+                                  : '🟡 Perlu Pantauan'}
+                              </td>
+                              <td className="px-4 py-3 text-stone-500">
+                                {report.notes || '-'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedFarmModal(null)}
+                    className="px-5 py-2.5 bg-[#1B3022] hover:bg-[#2D4A36] text-white font-bold text-xs rounded-xl cursor-pointer"
+                  >
+                    Tutup Detail
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* MODAL: ADD FARM ID */}
       {isAddFarmOpen && (
