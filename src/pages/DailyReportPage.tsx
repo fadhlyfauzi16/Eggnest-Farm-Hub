@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useFarm } from '../context/FarmContext';
 import { ChickenCondition, IssueType, DailyReport } from '../types';
 import {
@@ -42,7 +43,16 @@ const formatLongDateId = (dateKey: string): string => {
 
 
 export const DailyReportPage: React.FC = () => {
-  const { farm, reports, addDailyReport, textScale } = useFarm();
+  const navigate = useNavigate();
+  const { farm, reports, addDailyReport, textScale, setActivePage } = useFarm();
+  const farmData = farm as any;
+  const isFarmProfileComplete =
+    String(farmData.location || '').trim().length > 0 &&
+    String(farmData.fullAddress || '').trim().length >= 10 &&
+    farmData.latitude !== null && farmData.latitude !== undefined && farmData.latitude !== '' &&
+    farmData.longitude !== null && farmData.longitude !== undefined && farmData.longitude !== '' &&
+    Number.isFinite(Number(farmData.latitude)) &&
+    Number.isFinite(Number(farmData.longitude));
 
   const totalChickensCount = farm.activeChickens || 12;
 
@@ -155,6 +165,61 @@ export const DailyReportPage: React.FC = () => {
     if (searchFilter === 'high') return r.productivityRate >= 80;
     return true;
   });
+
+  if (!isFarmProfileComplete) {
+    return (
+      <div className="max-w-3xl mx-auto py-6 sm:py-10 animate-in fade-in duration-200">
+        <div className="bg-white rounded-3xl border-2 border-[#F2D38A] shadow-sm overflow-hidden">
+          <div className="bg-[#FFF8E8] p-6 sm:p-8 text-center">
+            <div className="w-16 h-16 mx-auto rounded-2xl bg-[#1B3022] text-[#D4AF37] flex items-center justify-center mb-4">
+              <AlertTriangle className="w-8 h-8" />
+            </div>
+            <span className="inline-flex px-3 py-1 rounded-full bg-[#8A5A00] text-white text-xs font-black mb-3">
+              🔒 LAPORAN HARIAN TERKUNCI
+            </span>
+            <h1 className="text-2xl sm:text-3xl font-black text-[#1B3022] font-['Outfit']">
+              Lengkapi Data Kandang Terlebih Dahulu
+            </h1>
+            <p className="mt-3 text-sm sm:text-base text-stone-600 font-medium max-w-xl mx-auto">
+              Untuk menjaga validitas data Eggnest, alamat lengkap dan titik GPS kandang wajib diisi sebelum laporan produksi pertama dapat dibuat.
+            </p>
+          </div>
+
+          <div className="p-6 sm:p-8 space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className={`p-4 rounded-2xl border ${String(farmData.location || '').trim() ? 'bg-[#EAF2EC] border-[#CDE3D3]' : 'bg-[#FAF7F2] border-[#EFECE6]'}`}>
+                <div className="font-bold text-sm text-[#1B3022]">Kabupaten/Kota</div>
+                <div className="text-xs text-stone-500 mt-1">{String(farmData.location || '').trim() ? '✓ Sudah diisi' : 'Belum diisi'}</div>
+              </div>
+              <div className={`p-4 rounded-2xl border ${String(farmData.fullAddress || '').trim().length >= 10 ? 'bg-[#EAF2EC] border-[#CDE3D3]' : 'bg-[#FAF7F2] border-[#EFECE6]'}`}>
+                <div className="font-bold text-sm text-[#1B3022]">Alamat Lengkap</div>
+                <div className="text-xs text-stone-500 mt-1">{String(farmData.fullAddress || '').trim().length >= 10 ? '✓ Sudah diisi' : 'Belum diisi'}</div>
+              </div>
+              <div className={`p-4 rounded-2xl border ${farmData.latitude != null && farmData.longitude != null ? 'bg-[#EAF2EC] border-[#CDE3D3]' : 'bg-[#FAF7F2] border-[#EFECE6]'}`}>
+                <div className="font-bold text-sm text-[#1B3022]">Titik GPS</div>
+                <div className="text-xs text-stone-500 mt-1">{farmData.latitude != null && farmData.longitude != null ? '✓ Sudah diisi' : 'Belum diisi'}</div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActivePage('profil');
+                navigate('/profile');
+              }}
+              className="w-full py-4 rounded-2xl bg-[#2D4A36] hover:bg-[#1B3022] text-white font-black text-sm sm:text-base flex items-center justify-center gap-2 cursor-pointer"
+            >
+              Lengkapi Data & Aktifkan Kandang
+              <ArrowRight className="w-5 h-5" />
+            </button>
+            <p className="text-center text-xs text-stone-500">
+              Setelah data tersimpan, menu Laporan Harian akan terbuka otomatis.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 sm:space-y-8 pb-12 animate-in fade-in duration-200">

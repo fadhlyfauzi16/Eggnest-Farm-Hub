@@ -688,6 +688,24 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error('Farm ID belum terhubung ke akun ini. Silakan login ulang atau hubungi Admin Eggnest.');
       }
 
+      const farmData = currentFarm as any;
+      const profileComplete =
+        String(farmData.location || '').trim().length > 0 &&
+        String(farmData.fullAddress || '').trim().length >= 10 &&
+        farmData.latitude !== null &&
+        farmData.latitude !== undefined &&
+        farmData.latitude !== '' &&
+        farmData.longitude !== null &&
+        farmData.longitude !== undefined &&
+        farmData.longitude !== '' &&
+        Number.isFinite(Number(farmData.latitude)) &&
+        Number.isFinite(Number(farmData.longitude));
+
+      if (!profileComplete) {
+        showToast('🔒 Lengkapi alamat dan titik GPS kandang terlebih dahulu sebelum mengisi laporan harian.');
+        return { success: false, productivity: 0 };
+      }
+
       const res = await api.saveDailyReport({
         ...data,
         farmId: currentFarm.id,
