@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import QRCode from 'qrcode';
 import { useFarm } from '../context/FarmContext';
@@ -14,450 +14,332 @@ import {
   Sparkles,
   Download,
   Printer,
-  Share2,
-  Lock,
-  Wallet,
-  ShoppingBag,
-  Trophy,
-  ExternalLink,
   Copy,
   CheckCircle2,
   Award,
+  ExternalLink,
+  Pencil,
+  Navigation,
+  X,
+  Save,
+  AlertTriangle,
 } from 'lucide-react';
 
-const hasCompleteFarmLocation = (farm: any): boolean => {
+const hasCompleteFarmData = (farm: any): boolean => {
   const location = String(farm?.location ?? '').trim();
   const locationKey = location.toLowerCase();
-  const validLocation =
-    location.length > 0 &&
-    locationKey !== 'indonesia' &&
-    !locationKey.includes('belum');
-
+  const validLocation = location.length > 0 && locationKey !== 'indonesia' && !locationKey.includes('belum');
   const fullAddress = String(farm?.fullAddress ?? '').trim();
-  const hasLatitude =
-    farm?.latitude !== null &&
-    farm?.latitude !== undefined &&
-    farm?.latitude !== '' &&
-    Number.isFinite(Number(farm.latitude));
-  const hasLongitude =
-    farm?.longitude !== null &&
-    farm?.longitude !== undefined &&
-    farm?.longitude !== '' &&
-    Number.isFinite(Number(farm.longitude));
-
-  return validLocation && fullAddress.length > 0 && hasLatitude && hasLongitude;
+  const hasLatitude = farm?.latitude !== null && farm?.latitude !== undefined && farm?.latitude !== '' && Number.isFinite(Number(farm.latitude));
+  const hasLongitude = farm?.longitude !== null && farm?.longitude !== undefined && farm?.longitude !== '' && Number.isFinite(Number(farm.longitude));
+  const breed = String(farm?.chickenBreed ?? '').trim();
+  const chickens = Number(farm?.activeChickens ?? 0);
+  const age = Number(farm?.currentAgeWeeks ?? 0);
+  return validLocation && fullAddress.length > 0 && hasLatitude && hasLongitude && breed.length > 0 && chickens > 0 && age > 0;
 };
 
 export const FarmProfilePage: React.FC = () => {
   const navigate = useNavigate();
-  const { farm, farmScore, setActivePage, showToast } = useFarm();
-  const [showQrModal, setShowQrModal] = useState(false);
-  const [qrDataUrl, setQrDataUrl] = useState<string>('');
-  const locationComplete = hasCompleteFarmLocation(farm);
+  const {
+    farm,
+    farmScore,
+    chickenCurrentAgeWeeks,
+    setActivePage,
+    showToast,
+    updateMyFarm,
+  } = useFarm();
+
+  const [qrDataUrl, setQrDataUrl] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isGettingGps, setIsGettingGps] = useState(false);
+
+  const [location, setLocation] = useState('');
+  const [fullAddress, setFullAddress] = useState('');
+  const [latitude, setLatitude] = useState<number | null>(null);
+  const [longitude, setLongitude] = useState<number | null>(null);
+  const [chickenBreed, setChickenBreed] = useState('');
+  const [activeChickens, setActiveChickens] = useState(0);
+  const [currentAgeWeeks, setCurrentAgeWeeks] = useState(0);
+
+  const dataComplete = hasCompleteFarmData(farm);
+
+  const syncForm = () => {
+    const rawLocation = String(farm.location ?? '').trim();
+    setLocation(
+      !rawLocation || rawLocation.toLowerCase() === 'indonesia' || rawLocation.toLowerCase().includes('belum')
+        ? ''
+        : rawLocation
+    );
+    setFullAddress(String(farm.fullAddress ?? ''));
+    setLatitude(farm.latitude == null || farm.latitude === '' ? null : Number(farm.latitude));
+    setLongitude(farm.longitude == null || farm.longitude === '' ? null : Number(farm.longitude));
+    setChickenBreed(String(farm.chickenBreed ?? ''));
+    setActiveChickens(Number(farm.activeChickens ?? 0));
+    setCurrentAgeWeeks(Number(chickenCurrentAgeWeeks || farm.currentAgeWeeks || 0));
+  };
 
   useEffect(() => {
-    if (farm?.farmCode) {
-      // Dynamic verification payload
-      const qrPayload = `${window.location.origin}/farm?code=${encodeURIComponent(farm.farmCode)}`;
-      QRCode.toDataURL(qrPayload, {
-        width: 300,
-        margin: 2,
-        color: {
-          dark: '#1B3022',
-          light: '#FFFFFF',
-        },
-      })
-        .then((url) => setQrDataUrl(url))
-        .catch((err) => console.error('Error generating QR code:', err));
-    }
+    syncForm();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [farm.id, farm.location, farm.fullAddress, farm.latitude, farm.longitude, farm.chickenBreed, farm.activeChickens, farm.currentAgeWeeks, chickenCurrentAgeWeeks]);
+
+  useEffect(() => {
+    if (!farm?.farmCode) return;
+    const payload = `${window.location.origin}/farm?code=${encodeURIComponent(farm.farmCode)}`;
+    QRCode.toDataURL(payload, {
+      width: 300,
+      margin: 2,
+      color: { dark: '#1B3022', light: '#FFFFFF' },
+    })
+      .then(setQrDataUrl)
+      .catch((err) => console.error('Error generating QR code:', err));
   }, [farm?.farmCode]);
 
   const copyFarmCode = () => {
+    if (!farm.farmCode) return;
     navigator.clipboard.writeText(farm.farmCode);
-    showToast(`📋 Kode Kandang ${farm.farmCode} disalin ke clipboard!`);
+    showToast(`📋 Farm ID ${farm.farmCode} disalin.`);
   };
 
-  const handleDownloadQr = () => {
-    if (!qrDataUrl) {
-      showToast('⚠️ QR Code belum siap diunduh.');
+  const captureGps = () => {
+    if (!navigator.geolocation) {
+      showToast('⚠️ Browser/perangkat ini tidak mendukung GPS.');
       return;
     }
+    setIsGettingGps(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLatitude(position.coords.latitude);
+        setLongitude(position.coords.longitude);
+        setIsGettingGps(false);
+        showToast('📍 Titik GPS berhasil diambil.');
+      },
+      (error) => {
+        setIsGettingGps(false);
+        showToast(
+          error.code === error.PERMISSION_DENIED
+            ? '⚠️ Izin lokasi ditolak. Aktifkan izin lokasi pada browser.'
+            : '⚠️ Lokasi belum berhasil didapatkan. Silakan coba lagi.'
+        );
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
+  };
+
+  const saveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!location.trim()) return showToast('⚠️ Kabupaten/Kota wajib diisi.');
+    if (!fullAddress.trim()) return showToast('⚠️ Alamat lengkap wajib diisi.');
+    if (latitude == null || longitude == null) return showToast('⚠️ Ambil titik GPS terlebih dahulu.');
+    if (!chickenBreed.trim()) return showToast('⚠️ Jenis/strain ayam wajib diisi.');
+    if (!Number.isInteger(activeChickens) || activeChickens < 1) return showToast('⚠️ Jumlah ayam aktif minimal 1 ekor.');
+    if (!Number.isFinite(currentAgeWeeks) || currentAgeWeeks < 1) return showToast('⚠️ Usia ayam wajib diisi.');
+
+    setIsSaving(true);
+    try {
+      const result = await updateMyFarm({
+        location: location.trim(),
+        fullAddress: fullAddress.trim(),
+        latitude,
+        longitude,
+        chickenBreed: chickenBreed.trim(),
+        activeChickens,
+        currentAgeWeeks,
+      });
+      if (result.success) setIsEditing(false);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const downloadQr = () => {
+    if (!qrDataUrl) return showToast('⚠️ QR Code belum siap.');
     const link = document.createElement('a');
     link.href = qrDataUrl;
     link.download = `QR-FARM-${farm.farmCode}.png`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    showToast(`📥 File QR Code ${farm.farmCode}.png berhasil diunduh!`);
   };
 
-  const handlePrintQr = () => {
-    if (!qrDataUrl) {
-      showToast('⚠️ QR Code belum siap dicetak.');
-      return;
-    }
-    const printWindow = window.open('', '_blank');
-    if (printWindow) {
-      printWindow.document.write(`
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <title>Kartu Verifikasi QR Farm - ${farm.farmCode}</title>
-            <style>
-              body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; text-align: center; padding: 40px; color: #1B3022; }
-              .card { border: 2px solid #2D4A36; border-radius: 16px; max-width: 360px; margin: 0 auto; padding: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-              h2 { margin: 0 0 4px; color: #1B3022; font-size: 22px; }
-              .subtitle { font-size: 12px; color: #588157; font-weight: bold; margin-bottom: 16px; text-transform: uppercase; }
-              img { width: 220px; height: 220px; margin: 12px 0; border: 1px solid #EFECE6; border-radius: 12px; }
-              .code { font-size: 20px; font-weight: 900; letter-spacing: 2px; color: #1B3022; }
-              .info { font-size: 13px; color: #4B5563; margin-top: 8px; line-height: 1.5; }
-              @media print { button { display: none; } }
-            </style>
-          </head>
-          <body>
-            <div class="card">
-              <h2>EGGNEST FARM HUB</h2>
-              <div class="subtitle">KARTU VERIFIKASI DIGITAL KANDANG</div>
-              <img src="${qrDataUrl}" alt="QR Code ${farm.farmCode}" />
-              <div class="code">${farm.farmCode}</div>
-              <div class="info">
-                <strong>Pemilik:</strong> ${farm.ownerName || 'Mitra'}<br />
-                <strong>Lokasi:</strong> ${locationComplete ? `${farm.fullAddress}, ${farm.location}` : 'Belum dilengkapi'}<br />
-                <strong>Populasi:</strong> ${farm.activeChickens} Ekor Layer
-              </div>
-            </div>
-            <script>
-              window.onload = function() { window.print(); };
-            </script>
-          </body>
-        </html>
-      `);
-      printWindow.document.close();
-      showToast('🖨️ Halaman cetak QR Code dibuka!');
-    }
+  const printQr = () => {
+    if (!qrDataUrl) return showToast('⚠️ QR Code belum siap.');
+    const win = window.open('', '_blank');
+    if (!win) return;
+    win.document.write(`<!doctype html><html><head><title>QR Farm ${farm.farmCode}</title><style>body{font-family:Arial;text-align:center;padding:40px;color:#1B3022}.card{border:2px solid #2D4A36;border-radius:16px;max-width:360px;margin:auto;padding:24px}.code{font-size:22px;font-weight:800;letter-spacing:2px}img{width:220px;height:220px}</style></head><body><div class="card"><h2>EGGNEST FARM HUB</h2><img src="${qrDataUrl}"/><div class="code">${farm.farmCode}</div><p>${farm.ownerName || 'Mitra'}</p></div><script>window.onload=()=>window.print()</script></body></html>`);
+    win.document.close();
   };
 
   return (
-    <div className="space-y-8 pb-12 animate-in fade-in duration-200">
-      {/* Header */}
-      <div>
-        <span className="px-3 py-1 bg-[#EAF2EC] text-[#1B3022] text-xs font-bold rounded-full border border-[#CDE3D3]">
-          Identitas Digital Kemitraan
-        </span>
-        <h1 className="text-2xl md:text-3xl lg:text-4xl font-extrabold text-[#1B3022] font-['Outfit'] tracking-tight mt-1">
-          Profil Kandang
-        </h1>
-        <p className="text-stone-600 text-sm font-medium mt-1">
-          Data registrasi, verifikasi sertifikat, status garansi, dan kartu QR Farm petugas.
-        </p>
+    <div className="space-y-6 sm:space-y-8 pb-12 animate-in fade-in duration-200">
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+        <div>
+          <span className="px-3 py-1 bg-[#EAF2EC] text-[#1B3022] text-xs font-bold rounded-full border border-[#CDE3D3]">
+            Identitas Digital Kemitraan
+          </span>
+          <h1 className="text-2xl md:text-3xl lg:text-4xl font-extrabold text-[#1B3022] font-['Outfit'] tracking-tight mt-1">
+            Profil Kandang
+          </h1>
+          <p className="text-stone-600 text-sm font-medium mt-1">Identitas Farm ID, data kandang, lokasi, dan QR verifikasi.</p>
+        </div>
+        <button
+          onClick={() => { syncForm(); setIsEditing(true); }}
+          className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-[#1B3022] hover:bg-[#2D4A36] text-white text-sm font-black shadow-sm"
+        >
+          <Pencil className="w-4 h-4 text-[#D4AF37]" /> Edit Data Kandang
+        </button>
       </div>
 
-      {/* Main Farm Card & QR Code Hero */}
+      {!dataComplete && (
+        <div className="rounded-3xl border-2 border-[#E5B52B] bg-[#FFF8E8] p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-6 h-6 text-[#A16207] shrink-0 mt-0.5" />
+            <div>
+              <h2 className="font-black text-[#1B3022]">Data Kandang Belum Lengkap</h2>
+              <p className="text-sm text-stone-600 mt-1">Lengkapi lokasi, GPS, jenis ayam, jumlah ayam, dan usia ayam agar Laporan Harian aktif.</p>
+            </div>
+          </div>
+          <button onClick={() => navigate('/reports')} className="px-5 py-3 rounded-2xl bg-[#D4AF37] text-[#1B3022] font-black text-sm whitespace-nowrap">
+            Aktifkan di Laporan →
+          </button>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left: Detailed Info Card */}
         <div className="lg:col-span-8 bg-white rounded-3xl border border-[#EFECE6] shadow-xs p-6 md:p-8 space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#EFECE6] pb-5">
             <div className="flex items-center gap-4">
-              <div className="w-16 h-16 rounded-2xl bg-[#1B3022] text-[#FDFBF7] flex items-center justify-center shadow-md">
-                <Warehouse className="w-8 h-8 text-[#D4AF37]" />
-              </div>
+              <div className="w-16 h-16 rounded-2xl bg-[#1B3022] flex items-center justify-center shadow-md"><Warehouse className="w-8 h-8 text-[#D4AF37]" /></div>
               <div>
-                <span className="text-xs text-stone-500 font-bold uppercase tracking-wider">
-                  Farm ID Resmi
-                </span>
+                <span className="text-xs text-stone-500 font-bold uppercase tracking-wider">Farm ID Resmi</span>
                 <div className="flex items-center gap-2">
-                  <h2 className="text-2xl md:text-3xl font-black text-[#1B3022] font-['Outfit']">
-                    {farm.farmCode}
-                  </h2>
-                  <button
-                    onClick={copyFarmCode}
-                    className="p-1.5 text-stone-400 hover:text-[#2D4A36] hover:bg-[#FAF7F2] rounded-lg transition-colors cursor-pointer"
-                    title="Salin Kode Farm"
-                  >
-                    <Copy className="w-4 h-4" />
-                  </button>
+                  <h2 className="text-2xl md:text-3xl font-black text-[#1B3022] font-['Outfit']">{farm.farmCode || '-'}</h2>
+                  <button onClick={copyFarmCode} className="p-2 rounded-lg hover:bg-[#FAF7F2]"><Copy className="w-4 h-4 text-stone-500" /></button>
                 </div>
               </div>
             </div>
-
-            <span className="bg-[#EAF2EC] text-[#1B3022] text-xs font-black px-3.5 py-1.5 rounded-full uppercase border border-[#CDE3D3] self-start sm:self-auto">
-              ✓ KANDANG AKTIF
-            </span>
+            <div className="flex flex-wrap gap-2">
+              <span className="bg-[#EAF2EC] text-[#1B3022] text-xs font-black px-3.5 py-1.5 rounded-full border border-[#CDE3D3]">✓ KEMITRAAN AKTIF</span>
+              <span className={`text-xs font-black px-3.5 py-1.5 rounded-full border ${dataComplete ? 'bg-[#EAF2EC] text-[#1B3022] border-[#CDE3D3]' : 'bg-[#FFF8E8] text-[#A16207] border-[#E5B52B]'}`}>
+                {dataComplete ? '✓ SIAP LAPOR' : '⚠ DATA BELUM LENGKAP'}
+              </span>
+            </div>
           </div>
 
-          {/* Structured Information Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="p-4 rounded-2xl bg-[#FAF7F2] border border-[#EFECE6]">
-              <span className="text-xs text-stone-500 font-semibold flex items-center gap-1.5">
-                <User className="w-4 h-4 text-[#2D4A36]" /> Pemilik Kandang
-              </span>
-              <p className="text-base font-bold text-[#1B3022] mt-1">{farm.ownerName}</p>
-            </div>
-
-            <div className="p-4 rounded-2xl bg-[#FAF7F2] border border-[#EFECE6]">
-              <span className="text-xs text-stone-500 font-semibold flex items-center gap-1.5">
-                <MapPin className="w-4 h-4 text-[#2D4A36]" /> Lokasi Kandang
-              </span>
-              <p className={`text-base font-bold mt-1 ${locationComplete ? 'text-[#1B3022]' : 'text-stone-400'}`}>
-                {locationComplete ? farm.location : 'Belum dilengkapi'}
-              </p>
-            </div>
-
-            <div className="p-4 rounded-2xl bg-[#FAF7F2] border border-[#EFECE6]">
-              <span className="text-xs text-stone-500 font-semibold flex items-center gap-1.5">
-                <Calendar className="w-4 h-4 text-[#2D4A36]" /> Tanggal Aktivasi
-              </span>
-              <p className="text-base font-bold text-[#1B3022] mt-1">{farm.activationDate}</p>
-            </div>
-
-            <div className="p-4 rounded-2xl bg-[#FAF7F2] border border-[#EFECE6]">
-              <span className="text-xs text-stone-500 font-semibold flex items-center gap-1.5">
-                <Layers className="w-4 h-4 text-[#2D4A36]" /> Jenis Ayam
-              </span>
-              <p className="text-base font-bold text-[#1B3022] mt-1">{farm.chickenBreed}</p>
-            </div>
-
-            <div className="p-4 rounded-2xl bg-[#FAF7F2] border border-[#EFECE6]">
-              <span className="text-xs text-stone-500 font-semibold flex items-center gap-1.5">
-                <Activity className="w-4 h-4 text-[#2D4A36]" /> Jumlah Ayam
-              </span>
-              <p className="text-base font-bold text-[#1B3022] mt-1">
-                {farm.activeChickens} ekor aktif{' '}
-                <span className="text-xs text-stone-500 font-normal">
-                  (Awal: {farm.initialChickens} ekor)
-                </span>
-              </p>
-            </div>
-
-            <div className="p-4 rounded-2xl bg-[#FAF7F2] border border-[#EFECE6]">
-              <span className="text-xs text-stone-500 font-semibold flex items-center gap-1.5">
-                <Sparkles className="w-4 h-4 text-[#2D4A36]" /> Usia Ayam
-              </span>
-              <p className="text-base font-bold text-[#1B3022] mt-1">
-                {farm.currentAgeWeeks} minggu{' '}
-                <span className="text-xs text-stone-500 font-normal">
-                  (Diterima: {farm.initialAgeWeeks} minggu)
-                </span>
-              </p>
-            </div>
+            <Info icon={<User className="w-4 h-4" />} label="Pemilik Kandang" value={farm.ownerName || '-'} />
+            <Info icon={<MapPin className="w-4 h-4" />} label="Kabupaten / Kota" value={dataComplete ? farm.location : 'Belum dilengkapi'} muted={!dataComplete} />
+            <Info icon={<Calendar className="w-4 h-4" />} label="Tanggal Aktivasi Kemitraan" value={farm.activationDate || '-'} />
+            <Info icon={<Layers className="w-4 h-4" />} label="Jenis Ayam" value={farm.chickenBreed || 'Belum diisi'} muted={!farm.chickenBreed} />
+            <Info icon={<Activity className="w-4 h-4" />} label="Jumlah Ayam Aktif" value={farm.activeChickens > 0 ? `${farm.activeChickens} ekor` : 'Belum diisi'} muted={!farm.activeChickens} />
+            <Info icon={<Sparkles className="w-4 h-4" />} label="Usia Ayam Saat Ini" value={chickenCurrentAgeWeeks > 0 ? `${chickenCurrentAgeWeeks} minggu` : 'Belum diisi'} muted={!chickenCurrentAgeWeeks} />
           </div>
 
-          {locationComplete && (
-            <div className="p-5 rounded-2xl bg-[#F7F4EE] border border-[#E5E1D8] space-y-4 animate-in fade-in duration-200">
+          {dataComplete && (
+            <div className="p-5 rounded-2xl bg-[#F7F4EE] border border-[#E5E1D8] space-y-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <span className="text-xs font-bold text-stone-500 uppercase tracking-wider">
-                    Data Lokasi Kandang
-                  </span>
-                  <p className="text-sm font-black text-[#1B3022] mt-0.5">
-                    Lokasi sudah terverifikasi untuk laporan harian
-                  </p>
+                  <span className="text-xs font-bold text-stone-500 uppercase tracking-wider">Lokasi Kandang</span>
+                  <p className="text-sm font-black text-[#1B3022] mt-0.5">Terverifikasi untuk laporan harian</p>
                 </div>
-                <span className="inline-flex items-center gap-1 rounded-full bg-[#EAF2EC] border border-[#CDE3D3] px-3 py-1 text-[11px] font-black text-[#1B3022]">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> AKTIF
-                </span>
+                <span className="inline-flex items-center gap-1 rounded-full bg-[#EAF2EC] border border-[#CDE3D3] px-3 py-1 text-[11px] font-black text-[#1B3022]"><CheckCircle2 className="w-3.5 h-3.5" /> AKTIF</span>
               </div>
-
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="rounded-xl bg-white border border-[#EFECE6] p-4">
-                  <span className="text-xs font-semibold text-stone-500 flex items-center gap-1.5">
-                    <MapPin className="w-4 h-4 text-[#2D4A36]" /> Alamat Lengkap
-                  </span>
-                  <p className="text-sm font-bold text-[#1B3022] mt-1 leading-relaxed">
-                    {farm.fullAddress}
-                  </p>
-                  <p className="text-xs text-stone-500 mt-1">{farm.location}</p>
+                  <span className="text-xs font-semibold text-stone-500">Alamat Lengkap</span>
+                  <p className="text-sm font-bold text-[#1B3022] mt-1 leading-relaxed">{farm.fullAddress}</p>
                 </div>
-
                 <div className="rounded-xl bg-white border border-[#EFECE6] p-4">
-                  <span className="text-xs font-semibold text-stone-500 flex items-center gap-1.5">
-                    <MapPin className="w-4 h-4 text-[#2D4A36]" /> Titik GPS
-                  </span>
-                  <p className="text-sm font-bold text-[#1B3022] mt-1">
-                    {Number(farm.latitude).toFixed(6)}, {Number(farm.longitude).toFixed(6)}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      window.open(
-                        `https://www.google.com/maps?q=${farm.latitude},${farm.longitude}`,
-                        '_blank',
-                        'noopener,noreferrer'
-                      )
-                    }
-                    className="mt-2 inline-flex items-center gap-1.5 text-xs font-bold text-[#2D4A36] hover:text-[#1B3022] cursor-pointer"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" /> Buka di Google Maps
+                  <span className="text-xs font-semibold text-stone-500">Titik GPS</span>
+                  <p className="text-sm font-bold text-[#1B3022] mt-1">{Number(farm.latitude).toFixed(6)}, {Number(farm.longitude).toFixed(6)}</p>
+                  <button onClick={() => window.open(`https://www.google.com/maps?q=${farm.latitude},${farm.longitude}`, '_blank', 'noopener,noreferrer')} className="mt-2 inline-flex items-center gap-1.5 text-xs font-bold text-[#2D4A36]">
+                    <ExternalLink className="w-3.5 h-3.5" /> Buka Google Maps
                   </button>
                 </div>
               </div>
             </div>
           )}
 
-          {/* Garansi Card */}
-          <div className="p-5 rounded-2xl bg-[#EAF2EC] border border-[#CDE3D3] flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-[#2D4A36] text-[#FDFBF7]">
-                <ShieldCheck className="w-6 h-6 text-[#D4AF37]" />
-              </div>
-              <div>
-                <span className="text-xs font-bold text-[#1B3022] uppercase font-['Outfit']">
-                  Status Garansi Kemitraan
-                </span>
-                <p className="text-base font-black text-[#1B3022] font-['Outfit']">
-                  Garansi Aktif • Berakhir: {farm.warrantyEnd}
-                </p>
-                <p className="text-xs text-stone-600">
-                  Penggantian gratis jika ayam sakit/mati dengan syarat rutin lapor harian.
-                </p>
-              </div>
+          <div className="p-5 rounded-2xl bg-[#EAF2EC] border border-[#CDE3D3] flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-[#2D4A36]"><ShieldCheck className="w-6 h-6 text-[#D4AF37]" /></div>
+            <div>
+              <span className="text-xs font-bold text-[#1B3022] uppercase">Status Garansi Kemitraan</span>
+              <p className="text-base font-black text-[#1B3022]">{farm.warrantyEnd || 'Mengikuti ketentuan paket Eggnest'}</p>
             </div>
           </div>
 
-          {/* Farm Score Quick Card */}
           <div className="p-5 rounded-2xl bg-[#FAF7F2] border border-[#EFECE6] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-xl bg-[#2D4A36] text-[#FDFBF7] flex items-center justify-center font-black text-lg shadow-xs">
-                {farmScore.totalScore}
-              </div>
+              <div className="w-12 h-12 rounded-xl bg-[#2D4A36] text-white flex items-center justify-center font-black text-lg">{farmScore.totalScore || '—'}</div>
               <div>
-                <span className="text-xs font-bold text-stone-500 uppercase tracking-wider">
-                  Farm Score Performa
-                </span>
-                <p className="text-base font-black text-[#1B3022] font-['Outfit'] flex items-center gap-2">
-                  Status: <span className="text-[#2D4A36]">{farmScore.statusText}</span>
-                </p>
-                <p className="text-xs text-stone-600">
-                  Disiplin Lapor: {farmScore.reportScore}/100 • Produksi: {farmScore.productionScore}/100
-                </p>
+                <span className="text-xs font-bold text-stone-500 uppercase tracking-wider">Farm Score</span>
+                <p className="text-base font-black text-[#1B3022]">{farmScore.statusText}</p>
               </div>
             </div>
-            <button
-              onClick={() => {
-                setActivePage('score');
-                navigate('/score');
-              }}
-              className="px-4 py-2.5 bg-[#2D4A36] hover:bg-[#1B3022] text-[#FDFBF7] font-bold text-xs rounded-xl transition-colors inline-flex items-center gap-1.5 cursor-pointer self-start sm:self-auto shadow-xs"
-            >
-              <Award className="w-4 h-4 text-[#D4AF37]" />
-              <span>Lihat Rincian Farm Score →</span>
-            </button>
+            <button onClick={() => { setActivePage('score'); navigate('/score'); }} className="px-4 py-2.5 bg-[#2D4A36] text-white font-bold text-xs rounded-xl inline-flex items-center gap-1.5"><Award className="w-4 h-4 text-[#D4AF37]" /> Lihat Farm Score →</button>
           </div>
         </div>
 
-        {/* Right: QR Farm Card */}
         <div className="lg:col-span-4 bg-white rounded-3xl border border-[#EFECE6] shadow-xs p-6 md:p-8 flex flex-col justify-between items-center text-center">
           <div className="w-full space-y-4">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-stone-500 uppercase tracking-wider">
-                Kartu Digital
-              </span>
-              <span className="text-xs font-black text-[#1B3022] bg-[#EAF2EC] px-2.5 py-0.5 rounded-full border border-[#CDE3D3]">
-                QR FARM
-              </span>
-            </div>
-
-            {/* Visual QR Code Display */}
-            <div className="p-4 bg-[#FAF7F2] rounded-3xl border-2 border-dashed border-[#E5E1D8] shadow-inner flex flex-col items-center justify-center">
-              <div className="w-52 h-52 bg-white rounded-2xl p-2.5 relative flex items-center justify-center shadow-md border border-[#EFECE6]">
-                {qrDataUrl ? (
-                  <img
-                    src={qrDataUrl}
-                    alt={`QR Code ${farm.farmCode}`}
-                    className="w-full h-full object-contain rounded-xl"
-                  />
-                ) : (
-                  <div className="flex flex-col items-center justify-center text-stone-400">
-                    <QrCode className="w-12 h-12 animate-pulse" />
-                    <span className="text-xs mt-2 font-medium">Membuat QR Code...</span>
-                  </div>
-                )}
+            <div className="flex items-center justify-between"><span className="text-xs font-bold text-stone-500 uppercase">Kartu Digital</span><span className="text-xs font-black text-[#1B3022] bg-[#EAF2EC] px-2.5 py-0.5 rounded-full border border-[#CDE3D3]">QR FARM</span></div>
+            <div className="p-4 bg-[#FAF7F2] rounded-3xl border-2 border-dashed border-[#E5E1D8] flex flex-col items-center">
+              <div className="w-52 h-52 bg-white rounded-2xl p-2.5 flex items-center justify-center shadow-md border border-[#EFECE6]">
+                {qrDataUrl ? <img src={qrDataUrl} alt={`QR ${farm.farmCode}`} className="w-full h-full object-contain rounded-xl" /> : <QrCode className="w-12 h-12 text-stone-400 animate-pulse" />}
               </div>
-
-              <span className="text-xs font-black text-[#1B3022] mt-3 font-['Outfit'] tracking-wider">
-                {farm.farmCode}
-              </span>
-              <p className="text-[11px] text-stone-500 mt-0.5">
-                Scan untuk verifikasi resmi status kandang Eggnest
-              </p>
+              <span className="text-sm font-black text-[#1B3022] mt-3 tracking-wider">{farm.farmCode}</span>
+              <p className="text-[11px] text-stone-500 mt-1">Scan untuk verifikasi Farm ID Eggnest</p>
             </div>
           </div>
-
           <div className="w-full pt-4 space-y-2">
-            <button
-              onClick={handlePrintQr}
-              className="w-full py-3 bg-[#2D4A36] hover:bg-[#1B3022] text-[#FDFBF7] font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
-            >
-              <Printer className="w-4 h-4" />
-              Cetak QR Code Kandang
-            </button>
-            <button
-              onClick={handleDownloadQr}
-              className="w-full py-2.5 bg-[#FAF7F2] hover:bg-[#EFECE6] text-[#1B3022] font-bold text-xs rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer border border-[#EFECE6]"
-            >
-              <Download className="w-4 h-4" />
-              Unduh Gambar PNG
-            </button>
+            <button onClick={printQr} className="w-full py-3 bg-[#2D4A36] text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2"><Printer className="w-4 h-4" /> Cetak QR Code</button>
+            <button onClick={downloadQr} className="w-full py-2.5 bg-[#FAF7F2] text-[#1B3022] font-bold text-xs rounded-xl border border-[#EFECE6] flex items-center justify-center gap-2"><Download className="w-4 h-4" /> Unduh PNG</button>
           </div>
         </div>
       </div>
 
-      {/* Ekosistem Mendatang (Eggnest Expansion Roadmap) */}
-      <div className="bg-white rounded-3xl border border-[#EFECE6] shadow-xs p-6 md:p-8 space-y-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold px-2.5 py-0.5 bg-[#FEF6E9] text-[#78350F] rounded-full border border-[#FDE68A]">
-              Ekosistem Terintegrasi
-            </span>
-            <span className="text-xs text-stone-400">Tahap Pengembangan Lanjutan</span>
-          </div>
-          <h3 className="text-xl font-bold text-[#1B3022] font-['Outfit'] mt-1">
-            Fitur Masa Depan Eggnest Farm Hub
-          </h3>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="p-4 rounded-2xl bg-[#FAF7F2] border border-[#EFECE6] space-y-2 opacity-90">
-            <div className="w-8 h-8 rounded-xl bg-[#EAF2EC] text-[#2D4A36] flex items-center justify-center font-bold">
-              <ShieldCheck className="w-4 h-4" />
+      {isEditing && (
+        <div className="fixed inset-0 z-50 bg-black/45 backdrop-blur-[1px] p-3 sm:p-6 flex items-center justify-center" onMouseDown={(e) => { if (e.target === e.currentTarget) setIsEditing(false); }}>
+          <div className="w-full max-w-3xl max-h-[92vh] overflow-y-auto bg-white rounded-3xl shadow-2xl border border-[#EFECE6]">
+            <div className="sticky top-0 bg-white z-10 flex items-center justify-between gap-4 px-5 sm:px-7 py-5 border-b border-[#EFECE6]">
+              <div><h2 className="text-xl sm:text-2xl font-black text-[#1B3022]">Edit Data Kandang</h2><p className="text-xs sm:text-sm text-stone-500">Farm ID dan data administrasi tetap dikunci oleh Eggnest.</p></div>
+              <button onClick={() => setIsEditing(false)} className="p-2 rounded-xl hover:bg-[#FAF7F2]"><X className="w-5 h-5" /></button>
             </div>
-            <h4 className="font-bold text-sm text-[#1B3022]">Proof of Productivity</h4>
-            <p className="text-xs text-stone-500">
-              Sertifikat digital terenkripsi yang membuktikan performa panen organik Anda.
-            </p>
-          </div>
-
-          <div className="p-4 rounded-2xl bg-[#FAF7F2] border border-[#EFECE6] space-y-2 opacity-90">
-            <div className="w-8 h-8 rounded-xl bg-[#FEF6E9] text-[#78350F] flex items-center justify-center font-bold">
-              <Wallet className="w-4 h-4" />
-            </div>
-            <h4 className="font-bold text-sm text-[#1B3022]">Wallet & Eggnesting</h4>
-            <p className="text-xs text-stone-500">
-              Dompet digital untuk pencairan hasil panen & tabungan pakan konsentrat.
-            </p>
-          </div>
-
-          <div className="p-4 rounded-2xl bg-[#FAF7F2] border border-[#EFECE6] space-y-2 opacity-90">
-            <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-800 flex items-center justify-center font-bold border border-blue-200">
-              <ShoppingBag className="w-4 h-4" />
-            </div>
-            <h4 className="font-bold text-sm text-[#1B3022]">Marketplace Mitra</h4>
-            <p className="text-xs text-stone-500">
-              Jual telur langsung ke tetangga atau pelanggan sekitar via katalog Eggnest.
-            </p>
-          </div>
-
-          <div className="p-4 rounded-2xl bg-[#FAF7F2] border border-[#EFECE6] space-y-2 opacity-90">
-            <div className="w-8 h-8 rounded-xl bg-purple-50 text-purple-800 flex items-center justify-center font-bold border border-purple-200">
-              <Trophy className="w-4 h-4" />
-            </div>
-            <h4 className="font-bold text-sm text-[#1B3022]">Leaderboard & Field Officer</h4>
-            <p className="text-xs text-stone-500">
-              Peringkat produksi regional dan jadwal kunjungan berkala petugas lapangan.
-            </p>
+            <form onSubmit={saveProfile} className="p-5 sm:p-7 space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <Field label="Kabupaten / Kota *"><input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Contoh: Kabupaten Klaten" className="field" /></Field>
+                <Field label="Alamat Lengkap Kandang *"><textarea rows={4} value={fullAddress} onChange={(e) => setFullAddress(e.target.value)} placeholder="Dusun/Desa, RT/RW, Kecamatan, Kabupaten/Kota, Provinsi" className="field resize-none" /></Field>
+                <Field label="Titik GPS *">
+                  <button type="button" onClick={captureGps} disabled={isGettingGps} className="w-full min-h-12 rounded-2xl bg-[#1B3022] text-white font-black flex items-center justify-center gap-2 disabled:opacity-60"><Navigation className="w-4 h-4 text-[#D4AF37]" /> {isGettingGps ? 'Mengambil Lokasi...' : latitude != null && longitude != null ? 'Ambil Ulang GPS' : 'Ambil Lokasi Saya'}</button>
+                  {latitude != null && longitude != null && <p className="text-xs font-bold text-[#2D4A36] mt-2">{latitude.toFixed(6)}, {longitude.toFixed(6)}</p>}
+                </Field>
+                <Field label="Jenis / Strain Ayam *"><input value={chickenBreed} onChange={(e) => setChickenBreed(e.target.value)} placeholder="Contoh: Lohmann Brown" className="field" /></Field>
+                <Field label="Jumlah Ayam Aktif *"><input type="number" min={1} max={1000} value={activeChickens || ''} onChange={(e) => setActiveChickens(Number(e.target.value))} className="field" /></Field>
+                <Field label="Usia Ayam Saat Ini *"><input type="number" min={1} max={200} value={currentAgeWeeks || ''} onChange={(e) => setCurrentAgeWeeks(Number(e.target.value))} className="field" /></Field>
+              </div>
+              <div className="rounded-2xl bg-[#FAF7F2] border border-[#EFECE6] p-4 text-xs text-stone-600">Usia yang Anda simpan menjadi patokan baru. Sistem akan menambah usia otomatis setiap 7 hari.</div>
+              <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
+                <button type="button" onClick={() => setIsEditing(false)} className="px-5 py-3 rounded-2xl border border-[#D9D4C8] font-bold text-stone-700">Batal</button>
+                <button type="submit" disabled={isSaving || isGettingGps} className="px-6 py-3 rounded-2xl bg-[#D4AF37] text-[#1B3022] font-black flex items-center justify-center gap-2 disabled:opacity-60"><Save className="w-4 h-4" /> {isSaving ? 'Menyimpan...' : 'Simpan Perubahan'}</button>
+              </div>
+            </form>
           </div>
         </div>
-      </div>
+      )}
+
+      <style>{`.field{width:100%;padding:.875rem 1rem;border-radius:1rem;border:1px solid #D9D4C8;background:#FDFBF7;color:#1B3022;font-weight:700;outline:none}.field:focus{box-shadow:0 0 0 2px #2D4A36}`}</style>
     </div>
   );
 };
+
+const Info: React.FC<{ icon: React.ReactNode; label: string; value: React.ReactNode; muted?: boolean }> = ({ icon, label, value, muted }) => (
+  <div className="p-4 rounded-2xl bg-[#FAF7F2] border border-[#EFECE6]">
+    <span className="text-xs text-stone-500 font-semibold flex items-center gap-1.5"><span className="text-[#2D4A36]">{icon}</span>{label}</span>
+    <p className={`text-base font-bold mt-1 ${muted ? 'text-stone-400' : 'text-[#1B3022]'}`}>{value}</p>
+  </div>
+);
+
+const Field: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
+  <div className="space-y-2"><label className="text-sm font-black text-[#1B3022]">{label}</label>{children}</div>
+);

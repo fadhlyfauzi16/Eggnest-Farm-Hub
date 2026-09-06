@@ -21,6 +21,7 @@ import {
   Lock,
   Navigation,
   Check,
+  Layers,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { ChickenHealthPicker, ChickenHealthItem } from '../components/common/ChickenHealthPicker';
@@ -45,34 +46,24 @@ const formatLongDateId = (dateKey: string): string => {
 };
 
 
-const hasCompleteFarmLocation = (farm: any): boolean => {
+const hasCompleteFarmData = (farm: any): boolean => {
   const location = String(farm?.location ?? '').trim();
   const locationKey = location.toLowerCase();
-  const validLocation =
-    location.length > 0 &&
-    locationKey !== 'indonesia' &&
-    !locationKey.includes('belum');
-
+  const validLocation = location.length > 0 && locationKey !== 'indonesia' && !locationKey.includes('belum');
   const fullAddress = String(farm?.fullAddress ?? '').trim();
-  const hasLatitude =
-    farm?.latitude !== null &&
-    farm?.latitude !== undefined &&
-    farm?.latitude !== '' &&
-    Number.isFinite(Number(farm.latitude));
-  const hasLongitude =
-    farm?.longitude !== null &&
-    farm?.longitude !== undefined &&
-    farm?.longitude !== '' &&
-    Number.isFinite(Number(farm.longitude));
-
-  return validLocation && fullAddress.length > 0 && hasLatitude && hasLongitude;
+  const hasLatitude = farm?.latitude !== null && farm?.latitude !== undefined && farm?.latitude !== '' && Number.isFinite(Number(farm.latitude));
+  const hasLongitude = farm?.longitude !== null && farm?.longitude !== undefined && farm?.longitude !== '' && Number.isFinite(Number(farm.longitude));
+  const breed = String(farm?.chickenBreed ?? '').trim();
+  const activeChickens = Number(farm?.activeChickens ?? 0);
+  const ageWeeks = Number(farm?.currentAgeWeeks ?? 0);
+  return validLocation && fullAddress.length > 0 && hasLatitude && hasLongitude && breed.length > 0 && activeChickens > 0 && ageWeeks > 0;
 };
 
 export const DailyReportPage: React.FC = () => {
-  const { farm, reports, addDailyReport, updateFarm, refreshAllData, showToast, textScale } = useFarm();
+  const { farm, reports, addDailyReport, updateMyFarm, showToast, textScale } = useFarm();
 
-  const totalChickensCount = farm.activeChickens || 12;
-  const locationComplete = hasCompleteFarmLocation(farm);
+  const totalChickensCount = farm.activeChickens || 0;
+  const farmDataComplete = hasCompleteFarmData(farm);
 
   const initialLocation = (() => {
     const value = String(farm.location ?? '').trim();
@@ -90,6 +81,9 @@ export const DailyReportPage: React.FC = () => {
   const [activationLongitude, setActivationLongitude] = useState<number | null>(
     farm.longitude == null || farm.longitude === '' ? null : Number(farm.longitude)
   );
+  const [activationBreed, setActivationBreed] = useState<string>(String(farm.chickenBreed ?? ''));
+  const [activationChickenCount, setActivationChickenCount] = useState<number>(Number(farm.activeChickens ?? 0));
+  const [activationAgeWeeks, setActivationAgeWeeks] = useState<number>(Number(farm.currentAgeWeeks ?? 0));
   const [isGettingGps, setIsGettingGps] = useState(false);
   const [isSavingActivation, setIsSavingActivation] = useState(false);
 
@@ -107,7 +101,10 @@ export const DailyReportPage: React.FC = () => {
     setActivationLongitude(
       farm.longitude == null || farm.longitude === '' ? null : Number(farm.longitude)
     );
-  }, [farm.id, farm.location, farm.fullAddress, farm.latitude, farm.longitude]);
+    setActivationBreed(String(farm.chickenBreed ?? ''));
+    setActivationChickenCount(Number(farm.activeChickens ?? 0));
+    setActivationAgeWeeks(Number(farm.currentAgeWeeks ?? 0));
+  }, [farm.id, farm.location, farm.fullAddress, farm.latitude, farm.longitude, farm.chickenBreed, farm.activeChickens, farm.currentAgeWeeks]);
 
   const [date, setDate] = useState<string>(() => localDateKey());
   const [eggCount, setEggCount] = useState<number>(10);
@@ -120,6 +117,14 @@ export const DailyReportPage: React.FC = () => {
       symptoms: [],
     }))
   );
+  useEffect(() => {
+    setChickensState((prev) =>
+      Array.from({ length: totalChickensCount }, (_, i) =>
+        prev[i] || { number: i + 1, status: 'healthy' as const, symptoms: [] }
+      )
+    );
+  }, [totalChickensCount]);
+
   const [notes, setNotes] = useState<string>('');
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
@@ -180,6 +185,19 @@ export const DailyReportPage: React.FC = () => {
       showToast('⚠️ Ambil titik GPS kandang terlebih dahulu.');
       return;
     }
+    const cleanBreed = activationBreed.trim();
+    if (!cleanBreed) {
+      showToast('⚠️ Jenis/strain ayam wajib diisi.');
+      return;
+    }
+    if (!Number.isInteger(activationChickenCount) || activationChickenCount < 1) {
+      showToast('⚠️ Jumlah ayam aktif minimal 1 ekor.');
+      return;
+    }
+    if (!Number.isFinite(activationAgeWeeks) || activationAgeWeeks < 1) {
+      showToast('⚠️ Usia ayam wajib diisi dalam minggu.');
+      return;
+    }
     if (!farm.id) {
       showToast('⚠️ Farm ID belum terhubung ke akun ini.');
       return;
@@ -187,16 +205,19 @@ export const DailyReportPage: React.FC = () => {
 
     setIsSavingActivation(true);
     try {
-      await updateFarm(
-        farm.id,
-        {
-          location: cleanLocation,
-          fullAddress: cleanAddress,
-          latitude: activationLatitude,
-          longitude: activationLongitude,
-        } as any
-      );
-      await refreshAllData();
+      const result = await updateMyFarm({
+        location: cleanLocation,
+        fullAddress: cleanAddress,
+        latitude: Number(activationLatitude),
+        longitude: Number(activationLongitude),
+        chickenBreed: cleanBreed,
+        activeChickens: activationChickenCount,
+        currentAgeWeeks: activationAgeWeeks,
+      });
+      if (result.success) {
+        showToast('✅ Data Kandang aktif. Silakan isi Laporan Harian pertama Anda.');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
     } finally {
       setIsSavingActivation(false);
     }
@@ -290,7 +311,7 @@ export const DailyReportPage: React.FC = () => {
     return true;
   });
 
-  if (!locationComplete) {
+  if (!farmDataComplete) {
     const gpsReady = activationLatitude !== null && activationLongitude !== null;
 
     return (
@@ -308,8 +329,7 @@ export const DailyReportPage: React.FC = () => {
             Aktifkan Data Kandang
           </h1>
           <p className="text-stone-600 text-sm font-medium mt-1 max-w-2xl">
-            Sebelum laporan pertama dibuat, lengkapi lokasi kandang dan ambil titik GPS.
-            Setelah tersimpan, form Laporan Harian akan terbuka otomatis di halaman ini.
+            Sebelum laporan pertama dibuat, lengkapi lokasi dan data ayam. Setelah tersimpan, form Laporan Harian akan terbuka otomatis di halaman ini.
           </p>
         </div>
 
@@ -324,7 +344,7 @@ export const DailyReportPage: React.FC = () => {
                   Lengkapi Data Kandang Terlebih Dahulu
                 </h2>
                 <p className="text-sm text-stone-600 mt-1">
-                  Data ini hanya diisi satu kali untuk memvalidasi lokasi Farm ID Anda.
+                  Data awal ini diisi satu kali. Setelah aktif, datanya dapat diperbarui kembali dari Profil Kandang.
                 </p>
               </div>
             </div>
@@ -383,6 +403,63 @@ export const DailyReportPage: React.FC = () => {
                   </div>
                 )}
               </div>
+
+              <div className="md:col-span-2 border-t border-[#EFECE6] pt-5 mt-1">
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="w-9 h-9 rounded-xl bg-[#EAF2EC] text-[#2D4A36] flex items-center justify-center">
+                    <Layers className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-black text-[#1B3022]">Data Ayam Saat Aktivasi</h3>
+                    <p className="text-xs text-stone-500">Isi sesuai kondisi ayam yang benar-benar ada di kandang saat ini.</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-2 md:col-span-1">
+                    <label className="text-sm font-black text-[#1B3022]">Jenis / Strain Ayam *</label>
+                    <input
+                      type="text"
+                      value={activationBreed}
+                      onChange={(e) => setActivationBreed(e.target.value)}
+                      placeholder="Contoh: Lohmann Brown"
+                      className="w-full px-4 py-3.5 rounded-2xl border border-[#D9D4C8] bg-[#FDFBF7] text-[#1B3022] font-bold outline-none focus:ring-2 focus:ring-[#2D4A36]"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-black text-[#1B3022]">Jumlah Ayam Aktif *</label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        min={1}
+                        max={1000}
+                        value={activationChickenCount || ''}
+                        onChange={(e) => setActivationChickenCount(Number(e.target.value))}
+                        placeholder="12"
+                        className="w-full px-4 py-3.5 pr-16 rounded-2xl border border-[#D9D4C8] bg-[#FDFBF7] text-[#1B3022] font-black outline-none focus:ring-2 focus:ring-[#2D4A36]"
+                      />
+                      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-bold text-stone-500">ekor</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-black text-[#1B3022]">Usia Ayam Saat Ini *</label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        min={1}
+                        max={200}
+                        value={activationAgeWeeks || ''}
+                        onChange={(e) => setActivationAgeWeeks(Number(e.target.value))}
+                        placeholder="18"
+                        className="w-full px-4 py-3.5 pr-20 rounded-2xl border border-[#D9D4C8] bg-[#FDFBF7] text-[#1B3022] font-black outline-none focus:ring-2 focus:ring-[#2D4A36]"
+                      />
+                      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-bold text-stone-500">minggu</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div className="pt-2">
@@ -392,7 +469,7 @@ export const DailyReportPage: React.FC = () => {
                 className="w-full sm:w-auto min-w-[260px] px-6 py-4 rounded-2xl bg-[#D4AF37] hover:bg-[#C49C24] text-[#1B3022] text-base font-black shadow-sm transition-all disabled:opacity-60 cursor-pointer flex items-center justify-center gap-2"
               >
                 <MapPin className="w-5 h-5" />
-                {isSavingActivation ? 'MENYIMPAN...' : 'SIMPAN & AKTIFKAN LAPORAN'}
+                {isSavingActivation ? 'MENYIMPAN...' : 'SIMPAN & AKTIFKAN KANDANG'}
               </button>
               <p className="text-xs text-stone-500 mt-3">
                 Setelah data berhasil disimpan, panel aktivasi ini hilang dan form laporan langsung muncul.

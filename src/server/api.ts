@@ -21,6 +21,7 @@ function ensureFarmerProfileColumns(database: any): void {
     ['full_address', 'TEXT'],
     ['latitude', 'REAL'],
     ['longitude', 'REAL'],
+    ['chicken_age_reference_date', 'TEXT'],
   ];
 
   for (const [column, type] of additions) {
@@ -417,7 +418,7 @@ router.get('/dashboard', requireAuth, async (req: AuthRequest, res) => {
       [farmId]
     );
 
-    const activeChickens = farm.active_chickens || 12;
+    const activeChickens = Number(farm.active_chickens);
     const todayStr = '2026-08-31';
 
     // Today's report (or latest)
@@ -500,7 +501,9 @@ router.get('/dashboard', requireAuth, async (req: AuthRequest, res) => {
 router.get('/reports', requireAuth, async (req: AuthRequest, res) => {
   try {
     const db = await getDb();
-    const farmId = (req.query.farmId as string) || req.user?.farmId;
+    const farmId = req.user?.role === 'member'
+      ? req.user?.farmId
+      : (req.query.farmId as string) || req.user?.farmId;
 
     if (!farmId) {
       return res.status(400).json({ success: false, message: 'Farm ID wajib disertakan.' });
@@ -541,9 +544,33 @@ router.post('/reports', requireAuth, async (req: AuthRequest, res) => {
     }
 
     const db = await getDb();
+    ensureFarmerProfileColumns(db);
     const farm = queryOne<any>(db, `SELECT * FROM farms WHERE id = ?`, [farmId]);
     if (!farm) {
       return res.status(404).json({ success: false, message: 'Kandang tidak ditemukan.' });
+    }
+
+    if (req.user?.role === 'member' && req.user.farmId !== farmId) {
+      return res.status(403).json({ success: false, message: 'Anda tidak memiliki akses ke kandang ini.' });
+    }
+
+    const locationKey = String(farm.location || '').trim().toLowerCase();
+    const profileComplete =
+      Boolean(String(farm.location || '').trim()) &&
+      locationKey !== 'indonesia' &&
+      !locationKey.includes('belum') &&
+      Boolean(String(farm.full_address || '').trim()) &&
+      farm.latitude !== null && Number.isFinite(Number(farm.latitude)) &&
+      farm.longitude !== null && Number.isFinite(Number(farm.longitude)) &&
+      Boolean(String(farm.chicken_breed || '').trim()) &&
+      Number(farm.active_chickens) > 0 &&
+      Number(farm.current_age_weeks) > 0;
+
+    if (!profileComplete) {
+      return res.status(400).json({
+        success: false,
+        message: 'Aktifkan Data Kandang terlebih dahulu: lokasi, GPS, jenis ayam, jumlah ayam, dan usia ayam wajib lengkap.',
+      });
     }
 
     // Load settings for FCR
@@ -626,6 +653,63 @@ router.get('/farms', requireAuth, async (req: AuthRequest, res) => {
     }
   } catch (err) {
     res.status(500).json({ success: false, message: 'Gagal memuat data kandang.' });
+  }
+});
+
+// Member-owned farm profile update. Only member-editable fields are accepted.
+router.put('/farms/me/profile', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    if (req.user?.role !== 'member') {
+      return res.status(403).json({ success: false, message: 'Endpoint ini khusus akun member.' });
+    }
+
+    const farmId = req.user.farmId;
+    if (!farmId) {
+      return res.status(400).json({ success: false, message: 'Farm ID belum terhubung ke akun ini.' });
+    }
+
+    const { location, fullAddress, latitude, longitude, chickenBreed, activeChickens, currentAgeWeeks } = req.body || {};
+    const cleanLocation = String(location ?? '').trim();
+    const cleanAddress = String(fullAddress ?? '').trim();
+    const cleanBreed = String(chickenBreed ?? '').trim();
+    const locationKey = cleanLocation.toLowerCase();
+    const lat = Number(latitude);
+    const lng = Number(longitude);
+    const chickens = Number(activeChickens);
+    const ageWeeks = Number(currentAgeWeeks);
+
+    if (!cleanLocation || locationKey === 'indonesia' || locationKey.includes('belum')) {
+      return res.status(400).json({ success: false, message: 'Kabupaten/Kota wajib diisi dengan lokasi yang sebenarnya.' });
+    }
+    if (!cleanAddress) return res.status(400).json({ success: false, message: 'Alamat lengkap kandang wajib diisi.' });
+    if (!Number.isFinite(lat) || lat < -90 || lat > 90) return res.status(400).json({ success: false, message: 'Latitude GPS tidak valid.' });
+    if (!Number.isFinite(lng) || lng < -180 || lng > 180) return res.status(400).json({ success: false, message: 'Longitude GPS tidak valid.' });
+    if (!cleanBreed) return res.status(400).json({ success: false, message: 'Jenis/strain ayam wajib diisi.' });
+    if (!Number.isInteger(chickens) || chickens < 1 || chickens > 1000) return res.status(400).json({ success: false, message: 'Jumlah ayam aktif tidak valid.' });
+    if (!Number.isFinite(ageWeeks) || ageWeeks < 1 || ageWeeks > 200) return res.status(400).json({ success: false, message: 'Usia ayam tidak valid.' });
+
+    const db = await getDb();
+    ensureFarmerProfileColumns(db);
+    const existing = queryOne<any>(db, `SELECT * FROM farms WHERE id = ?`, [farmId]);
+    if (!existing) return res.status(404).json({ success: false, message: 'Kandang tidak ditemukan.' });
+
+    const now = new Date().toISOString();
+    const today = now.split('T')[0];
+    runSql(
+      db,
+      `UPDATE farms SET
+        location = ?, full_address = ?, latitude = ?, longitude = ?,
+        chicken_breed = ?, active_chickens = ?, current_age_weeks = ?,
+        chicken_age_reference_date = ?, updated_at = ?
+       WHERE id = ?`,
+      [cleanLocation, cleanAddress, lat, lng, cleanBreed, chickens, ageWeeks, today, now, farmId]
+    );
+
+    const updated = queryOne<any>(db, `SELECT * FROM farms WHERE id = ?`, [farmId]);
+    return res.json({ success: true, message: 'Data kandang berhasil disimpan. Laporan Harian sekarang aktif.', farm: updated });
+  } catch (err) {
+    console.error('Error updating member farm profile:', err);
+    return res.status(500).json({ success: false, message: 'Gagal menyimpan Data Kandang.' });
   }
 });
 
@@ -757,32 +841,20 @@ router.put('/admin/farms/:id', requireAdmin, async (req: AuthRequest, res) => {
       latitude,
       longitude,
       activeChickens,
+      chickenBreed,
+      currentAgeWeeks,
       status,
     } = req.body;
 
     const db = await getDb();
     ensureFarmerProfileColumns(db);
     const now = new Date().toISOString();
+    const today = now.split('T')[0];
 
-    const lat =
-      latitude === '' || latitude === undefined
-        ? null
-        : latitude === null
-        ? null
-        : Number(latitude);
-    const lng =
-      longitude === '' || longitude === undefined
-        ? null
-        : longitude === null
-        ? null
-        : Number(longitude);
-
-    if (lat !== null && (!Number.isFinite(lat) || lat < -90 || lat > 90)) {
-      return res.status(400).json({ success: false, message: 'Latitude tidak valid.' });
-    }
-    if (lng !== null && (!Number.isFinite(lng) || lng < -180 || lng > 180)) {
-      return res.status(400).json({ success: false, message: 'Longitude tidak valid.' });
-    }
+    const lat = latitude === '' || latitude === undefined ? null : latitude === null ? null : Number(latitude);
+    const lng = longitude === '' || longitude === undefined ? null : longitude === null ? null : Number(longitude);
+    if (lat !== null && (!Number.isFinite(lat) || lat < -90 || lat > 90)) return res.status(400).json({ success: false, message: 'Latitude tidak valid.' });
+    if (lng !== null && (!Number.isFinite(lng) || lng < -180 || lng > 180)) return res.status(400).json({ success: false, message: 'Longitude tidak valid.' });
 
     runSql(
       db,
@@ -795,6 +867,9 @@ router.put('/admin/farms/:id', requireAdmin, async (req: AuthRequest, res) => {
         latitude = CASE WHEN ? = 1 THEN ? ELSE latitude END,
         longitude = CASE WHEN ? = 1 THEN ? ELSE longitude END,
         active_chickens = COALESCE(?, active_chickens),
+        chicken_breed = COALESCE(?, chicken_breed),
+        current_age_weeks = COALESCE(?, current_age_weeks),
+        chicken_age_reference_date = CASE WHEN ? = 1 THEN ? ELSE chicken_age_reference_date END,
         status = COALESCE(?, status),
         updated_at = ?
        WHERE id = ?`,
@@ -809,6 +884,10 @@ router.put('/admin/farms/:id', requireAdmin, async (req: AuthRequest, res) => {
         Object.prototype.hasOwnProperty.call(req.body, 'longitude') ? 1 : 0,
         lng,
         activeChickens === undefined ? null : Number(activeChickens),
+        chickenBreed ?? null,
+        currentAgeWeeks === undefined ? null : Number(currentAgeWeeks),
+        currentAgeWeeks === undefined ? 0 : 1,
+        today,
         status ?? null,
         now,
         farmId,
@@ -816,15 +895,8 @@ router.put('/admin/farms/:id', requireAdmin, async (req: AuthRequest, res) => {
     );
 
     const updated = queryOne<any>(db, `SELECT * FROM farms WHERE id = ?`, [farmId]);
-    if (!updated) {
-      return res.status(404).json({ success: false, message: 'Kandang tidak ditemukan.' });
-    }
-
-    return res.json({
-      success: true,
-      message: 'Data peternak dan kandang berhasil diperbarui.',
-      farm: updated,
-    });
+    if (!updated) return res.status(404).json({ success: false, message: 'Kandang tidak ditemukan.' });
+    return res.json({ success: true, message: 'Data peternak dan kandang berhasil diperbarui.', farm: updated });
   } catch (err) {
     return res.status(500).json({ success: false, message: 'Gagal memperbarui data kandang.' });
   }

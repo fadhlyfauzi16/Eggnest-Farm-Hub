@@ -128,6 +128,15 @@ interface FarmContextType {
     initialAgeWeeks?: number;
   }) => Promise<Farm | null>;
   updateFarm: (farmId: string, farmData: Partial<Farm>) => Promise<void>;
+  updateMyFarm: (farmData: {
+    location: string;
+    fullAddress: string;
+    latitude: number;
+    longitude: number;
+    chickenBreed: string;
+    activeChickens: number;
+    currentAgeWeeks: number;
+  }) => Promise<{ success: boolean; message: string; farm?: Farm }>;
 
   createAcademyContent: (content: Partial<AcademyContent>) => Promise<void>;
   updateAcademyContent: (id: string, content: Partial<AcademyContent>) => Promise<void>;
@@ -183,6 +192,7 @@ const EMPTY_FARM: Farm = ({
   chickenBreed: '',
   initialAgeWeeks: 0,
   currentAgeWeeks: 0,
+  chickenAgeReferenceDate: '',
   warrantyEnd: '',
   status: 'unclaimed',
   photoUrl: '',
@@ -226,6 +236,7 @@ const normalizeFarm = (raw: any): Farm =>
     chickenBreed: String(raw?.chickenBreed ?? raw?.chicken_breed ?? ''),
     initialAgeWeeks: Number(raw?.initialAgeWeeks ?? raw?.initial_age_weeks ?? 0),
     currentAgeWeeks: Number(raw?.currentAgeWeeks ?? raw?.current_age_weeks ?? 0),
+    chickenAgeReferenceDate: String(raw?.chickenAgeReferenceDate ?? raw?.chicken_age_reference_date ?? ''),
     warrantyEnd: String(raw?.warrantyEnd ?? raw?.warranty_end ?? ''),
     status: raw?.status ?? 'unclaimed',
     photoUrl: String(raw?.photoUrl ?? raw?.photo_url ?? ''),
@@ -271,27 +282,26 @@ const localDateKey = (value: Date = new Date()): string => {
   return `${year}-${month}-${day}`;
 };
 
-const hasCompleteFarmLocation = (farm: any): boolean => {
+const hasCompleteFarmData = (farm: any): boolean => {
   const location = String(farm?.location ?? '').trim();
   const locationKey = location.toLowerCase();
-  const validLocation =
-    location.length > 0 &&
-    locationKey !== 'indonesia' &&
-    !locationKey.includes('belum');
-
+  const validLocation = location.length > 0 && locationKey !== 'indonesia' && !locationKey.includes('belum');
   const fullAddress = String(farm?.fullAddress ?? '').trim();
-  const hasLatitude =
-    farm?.latitude !== null &&
-    farm?.latitude !== undefined &&
-    farm?.latitude !== '' &&
-    Number.isFinite(Number(farm.latitude));
-  const hasLongitude =
-    farm?.longitude !== null &&
-    farm?.longitude !== undefined &&
-    farm?.longitude !== '' &&
-    Number.isFinite(Number(farm.longitude));
+  const hasLatitude = farm?.latitude !== null && farm?.latitude !== undefined && farm?.latitude !== '' && Number.isFinite(Number(farm.latitude));
+  const hasLongitude = farm?.longitude !== null && farm?.longitude !== undefined && farm?.longitude !== '' && Number.isFinite(Number(farm.longitude));
+  const chickenBreed = String(farm?.chickenBreed ?? '').trim();
+  const activeChickens = Number(farm?.activeChickens ?? 0);
+  const currentAgeWeeks = Number(farm?.currentAgeWeeks ?? 0);
 
-  return validLocation && fullAddress.length > 0 && hasLatitude && hasLongitude;
+  return (
+    validLocation &&
+    fullAddress.length > 0 &&
+    hasLatitude &&
+    hasLongitude &&
+    chickenBreed.length > 0 &&
+    activeChickens > 0 &&
+    currentAgeWeeks > 0
+  );
 };
 
 
@@ -464,18 +474,20 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
       .sort((a, b) => b.date.localeCompare(a.date));
   }, [allReports, currentFarm.id]);
 
-  // Dynamic Age calculation from activation date & initial weeks
+  // Age is based on the age explicitly entered by the member and the date it was recorded.
+  // No invented 18/22-week fallback is used.
   const chickenCurrentAgeWeeks = useMemo(() => {
-    if (!currentFarm.activationDate) return currentFarm.initialAgeWeeks || 18;
-    try {
-      const actDate = new Date(currentFarm.activationDate);
-      const now = new Date();
-      const diffTime = Math.abs(now.getTime() - actDate.getTime());
-      const diffWeeks = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 7));
-      return (currentFarm.initialAgeWeeks || 18) + diffWeeks;
-    } catch (e) {
-      return currentFarm.currentAgeWeeks || 22;
-    }
+    const baseAge = Number((currentFarm as any).currentAgeWeeks ?? 0);
+    const referenceDate = String((currentFarm as any).chickenAgeReferenceDate ?? '');
+    if (!baseAge || baseAge <= 0) return 0;
+    if (!referenceDate) return baseAge;
+
+    const ref = new Date(`${referenceDate}T00:00:00`);
+    if (Number.isNaN(ref.getTime())) return baseAge;
+    const now = new Date();
+    const diffMs = Math.max(0, now.getTime() - ref.getTime());
+    const diffWeeks = Math.floor(diffMs / (1000 * 60 * 60 * 24 * 7));
+    return baseAge + diffWeeks;
   }, [currentFarm]);
 
   // Database-driven calculations using the actual local date
@@ -711,9 +723,9 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error('Farm ID belum terhubung ke akun ini. Silakan login ulang atau hubungi Admin Eggnest.');
       }
 
-      if (!hasCompleteFarmLocation(currentFarm)) {
+      if (!hasCompleteFarmData(currentFarm)) {
         throw new Error(
-          'Data lokasi kandang belum lengkap. Isi Kabupaten/Kota, Alamat Lengkap, dan Titik GPS sebelum membuat laporan harian.'
+          'Data kandang belum lengkap. Isi lokasi, GPS, jenis ayam, jumlah ayam aktif, dan usia ayam sebelum membuat laporan harian.'
         );
       }
 
@@ -812,6 +824,33 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await refreshAllData();
     } catch (err: any) {
       showToast(`⚠️ Gagal memperbarui farm: ${err.message}`);
+      throw err;
+    }
+  };
+
+  const updateMyFarm = async (farmData: {
+    location: string;
+    fullAddress: string;
+    latitude: number;
+    longitude: number;
+    chickenBreed: string;
+    activeChickens: number;
+    currentAgeWeeks: number;
+  }) => {
+    try {
+      const res = await api.updateMyFarm(farmData);
+      const normalized = normalizeFarm(res.farm);
+      setCurrentFarm(normalized);
+      setFarms((prev) => {
+        const exists = prev.some((item) => item.id === normalized.id);
+        return exists ? prev.map((item) => (item.id === normalized.id ? normalized : item)) : [normalized, ...prev];
+      });
+      showToast(res.message);
+      return { success: true, message: res.message, farm: normalized };
+    } catch (err: any) {
+      const message = err?.message || 'Gagal memperbarui Data Kandang.';
+      showToast(`⚠️ ${message}`);
+      return { success: false, message };
     }
   };
 
@@ -946,7 +985,7 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const handleQuickReportOpen = (open: boolean) => {
-    if (open && currentUser?.role === 'member' && !hasCompleteFarmLocation(currentFarm)) {
+    if (open && currentUser?.role === 'member' && !hasCompleteFarmData(currentFarm)) {
       setIsQuickReportOpen(false);
       setActivePage('laporan');
 
@@ -1005,6 +1044,7 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updateTicketStatus,
         createFarm,
         updateFarm,
+        updateMyFarm,
         createAcademyContent,
         updateAcademyContent,
         deleteAcademyContent,

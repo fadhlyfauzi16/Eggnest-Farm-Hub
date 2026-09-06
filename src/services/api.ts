@@ -186,6 +186,22 @@ export const api = {
     });
   },
 
+
+  async updateMyFarm(data: {
+    location: string;
+    fullAddress: string;
+    latitude: number;
+    longitude: number;
+    chickenBreed: string;
+    activeChickens: number;
+    currentAgeWeeks: number;
+  }) {
+    return request<{ success: boolean; message: string; farm: Farm }>('/farms/me/profile', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
   async deleteFarm(farmId: string, deleteMember: boolean = true) {
     return request<{ success: boolean; message: string }>(
       `/admin/farms/${encodeURIComponent(farmId)}?deleteMember=${deleteMember ? 'true' : 'false'}`,
