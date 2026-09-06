@@ -1,6 +1,5 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useFarm } from '../context/FarmContext';
 import { EggnestLogo } from '../components/common/EggnestLogo';
 import {
   Home,
@@ -29,7 +28,6 @@ interface LandingPageProps {
 }
 
 export const LandingPage: React.FC<LandingPageProps> = ({ onNavigateToAuth }) => {
-  const { setActivePage, currentUser } = useFarm();
   const navigate = useNavigate();
 
   const handleAuthNavigation = (mode: 'login' | 'register' = 'login') => {
@@ -38,13 +36,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigateToAuth }) =>
     } else {
       navigate(`/auth?mode=${mode}`);
     }
-  };
-
-  const handleDashboardNavigation = () => {
-    const targetRoute = currentUser?.role === 'admin' ? '/admin' : '/home';
-    const targetPage = currentUser?.role === 'admin' ? 'admin' : 'beranda';
-    setActivePage(targetPage);
-    navigate(targetRoute);
   };
 
   const scrollToSection = (id: string) => {
@@ -108,31 +99,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigateToAuth }) =>
 
           {/* CTA Buttons */}
           <div className="flex items-center gap-3">
-            {currentUser ? (
-              <button
-                onClick={handleDashboardNavigation}
-                className="px-5 py-2.5 bg-[#1B3022] hover:bg-[#2D4A36] text-[#FDFBF7] font-bold text-sm rounded-xl shadow-xs transition-all flex items-center gap-2 cursor-pointer"
-              >
-                <span>Buka Dashboard</span>
-                <ArrowRight className="w-4 h-4 text-[#D4AF37]" />
-              </button>
-            ) : (
-              <>
-                <button
-                  onClick={() => handleAuthNavigation('login')}
-                  className="hidden sm:inline-flex px-4 py-2 text-sm font-bold text-[#1B3022] hover:text-[#2D4A36] transition-colors cursor-pointer"
-                >
-                  Masuk
-                </button>
-                <button
-                  onClick={() => handleAuthNavigation('register')}
-                  className="px-5 py-2.5 bg-[#1B3022] hover:bg-[#2D4A36] text-[#FDFBF7] font-bold text-sm rounded-2xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer transform active:scale-95"
-                >
-                  <span>MASUK / DAFTAR</span>
-                  <ArrowRight className="w-4 h-4 text-[#D4AF37]" />
-                </button>
-              </>
-            )}
+            <button
+              onClick={() => handleAuthNavigation('login')}
+              className="px-5 py-2.5 bg-[#1B3022] hover:bg-[#2D4A36] text-[#FDFBF7] font-bold text-sm rounded-2xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer transform active:scale-95"
+            >
+              <span>MASUK / LOGIN</span>
+              <ArrowRight className="w-4 h-4 text-[#D4AF37]" />
+            </button>
           </div>
         </div>
       </header>
