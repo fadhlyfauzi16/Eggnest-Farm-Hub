@@ -74,7 +74,18 @@ export const AdminPage: React.FC = () => {
   const [newFarmOwner, setNewFarmOwner] = useState('');
   const [newFarmPhone, setNewFarmPhone] = useState('');
   const [newFarmLocation, setNewFarmLocation] = useState('');
+  const [newPurchaseDate, setNewPurchaseDate] = useState('');
+  const [newFullAddress, setNewFullAddress] = useState('');
+  const [newLatitude, setNewLatitude] = useState('');
+  const [newLongitude, setNewLongitude] = useState('');
   const [newFarmChickens, setNewFarmChickens] = useState(12);
+
+  // Edit farmer master data
+  const [isEditFarmerOpen, setIsEditFarmerOpen] = useState(false);
+  const [editPurchaseDate, setEditPurchaseDate] = useState('');
+  const [editFullAddress, setEditFullAddress] = useState('');
+  const [editLatitude, setEditLatitude] = useState('');
+  const [editLongitude, setEditLongitude] = useState('');
 
   // Excel import / export
   type ImportType = 'members' | 'farms' | 'chickens' | 'reports';
@@ -107,6 +118,16 @@ export const AdminPage: React.FC = () => {
     ownerName: String(farm.ownerName ?? farm.owner_name ?? ''),
     phone: String(farm.phone ?? ''),
     location: String(farm.location ?? ''),
+    purchaseDate: String(farm.purchaseDate ?? farm.purchase_date ?? ''),
+    fullAddress: String(farm.fullAddress ?? farm.full_address ?? ''),
+    latitude:
+      farm.latitude === null || farm.latitude === undefined || farm.latitude === ''
+        ? null
+        : Number(farm.latitude),
+    longitude:
+      farm.longitude === null || farm.longitude === undefined || farm.longitude === ''
+        ? null
+        : Number(farm.longitude),
     status: farm.status ?? 'unclaimed',
     activeChickens: Number(farm.activeChickens ?? farm.active_chickens ?? 0),
     currentAgeWeeks: Number(farm.currentAgeWeeks ?? farm.current_age_weeks ?? 0),
@@ -150,6 +171,62 @@ export const AdminPage: React.FC = () => {
     showToast(`📱 Menghubungi ${name} (${phone}) via WhatsApp...`);
   };
 
+  const captureGps = (
+    setLat: React.Dispatch<React.SetStateAction<string>>,
+    setLng: React.Dispatch<React.SetStateAction<string>>
+  ) => {
+    if (!navigator.geolocation) {
+      showToast('Browser ini tidak mendukung pengambilan GPS.');
+      return;
+    }
+
+    showToast('Mengambil titik GPS...');
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLat(position.coords.latitude.toFixed(7));
+        setLng(position.coords.longitude.toFixed(7));
+        showToast('✅ Titik GPS berhasil diambil.');
+      },
+      (error) => {
+        showToast(`⚠️ GPS gagal diambil: ${error.message}`);
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
+  };
+
+  const openEditFarmer = (farm: any) => {
+    setSelectedFarmModal(farm);
+    setEditPurchaseDate(String(farm.purchaseDate ?? farm.purchase_date ?? ''));
+    setEditFullAddress(String(farm.fullAddress ?? farm.full_address ?? ''));
+    setEditLatitude(
+      farm.latitude === null || farm.latitude === undefined ? '' : String(farm.latitude)
+    );
+    setEditLongitude(
+      farm.longitude === null || farm.longitude === undefined ? '' : String(farm.longitude)
+    );
+    setIsEditFarmerOpen(true);
+  };
+
+  const handleSaveFarmerData = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedFarmModal?.id) return;
+
+    try {
+      const res = await api.updateFarm(selectedFarmModal.id, {
+        purchaseDate: editPurchaseDate || undefined,
+        fullAddress: editFullAddress.trim() || undefined,
+        latitude: editLatitude.trim() === '' ? null : Number(editLatitude),
+        longitude: editLongitude.trim() === '' ? null : Number(editLongitude),
+      } as any);
+
+      showToast(res.message || 'Data peternak berhasil diperbarui.');
+      setIsEditFarmerOpen(false);
+      window.setTimeout(() => window.location.reload(), 400);
+    } catch (err: any) {
+      showToast(err?.message || 'Gagal memperbarui data peternak.');
+    }
+  };
+
   const handleCreateFarm = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -158,6 +235,10 @@ export const AdminPage: React.FC = () => {
         ownerName: newFarmOwner.trim(),
         phone: newFarmPhone.trim(),
         location: newFarmLocation.trim() || 'Paket Belum Diaktivasi (Tersedia)',
+        purchaseDate: newPurchaseDate || undefined,
+        fullAddress: newFullAddress.trim() || undefined,
+        latitude: newLatitude.trim() === '' ? null : Number(newLatitude),
+        longitude: newLongitude.trim() === '' ? null : Number(newLongitude),
         initialChickens: newFarmChickens,
         chickenBreed: 'Layer Lohmann Brown Petelur Unggul',
         initialAgeWeeks: 18,
@@ -169,6 +250,10 @@ export const AdminPage: React.FC = () => {
       setNewFarmOwner('');
       setNewFarmPhone('');
       setNewFarmLocation('');
+      setNewPurchaseDate('');
+      setNewFullAddress('');
+      setNewLatitude('');
+      setNewLongitude('');
       window.setTimeout(() => window.location.reload(), 500);
     } catch (err: any) {
       showToast(err?.message || 'Gagal membuat Farm ID');
@@ -1106,6 +1191,41 @@ Ketik HAPUS untuk melanjutkan.`
                         {selectedFarmModal.location || '-'}
                       </strong>
 
+                      <span className="text-stone-500">Tanggal Beli</span>
+                      <strong className="text-stone-800">
+                        {selectedFarmModal.purchaseDate ??
+                          selectedFarmModal.purchase_date ??
+                          '-'}
+                      </strong>
+
+                      <span className="text-stone-500">Alamat Lengkap</span>
+                      <strong className="text-stone-800 whitespace-pre-line">
+                        {selectedFarmModal.fullAddress ??
+                          selectedFarmModal.full_address ??
+                          '-'}
+                      </strong>
+
+                      <span className="text-stone-500">Titik GPS</span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <strong className="font-mono text-stone-800">
+                          {selectedFarmModal.latitude != null &&
+                          selectedFarmModal.longitude != null
+                            ? `${selectedFarmModal.latitude}, ${selectedFarmModal.longitude}`
+                            : '-'}
+                        </strong>
+                        {selectedFarmModal.latitude != null &&
+                          selectedFarmModal.longitude != null && (
+                            <a
+                              href={`https://www.google.com/maps?q=${selectedFarmModal.latitude},${selectedFarmModal.longitude}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-[#2D4A36] font-bold underline"
+                            >
+                              Buka Maps
+                            </a>
+                          )}
+                      </div>
+
                       <span className="text-stone-500">Farm ID</span>
                       <strong className="font-mono text-[#1B3022]">
                         {selectedFarmModal.farmCode || '-'}
@@ -1127,6 +1247,14 @@ Ketik HAPUS untuk melanjutkan.`
                         Hubungi Member
                       </button>
                     )}
+
+                    <button
+                      type="button"
+                      onClick={() => openEditFarmer(selectedFarmModal)}
+                      className="w-full px-4 py-2.5 bg-[#1B3022] hover:bg-[#2D4A36] text-white font-bold text-xs rounded-xl cursor-pointer"
+                    >
+                      Edit Data Peternak
+                    </button>
                   </div>
 
                   <div className="bg-white rounded-2xl border border-[#EFECE6] p-5 space-y-3">
@@ -1254,6 +1382,114 @@ Ketik HAPUS untuk melanjutkan.`
         );
       })()}
 
+
+      {/* MODAL: EDIT DATA PETERNAK */}
+      {isEditFarmerOpen && selectedFarmModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl shadow-2xl border border-[#EFECE6] w-full max-w-lg p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-[#EFECE6] pb-3">
+              <div>
+                <h3 className="text-lg font-bold text-[#1B3022] font-['Outfit']">
+                  Edit Data Peternak
+                </h3>
+                <p className="text-xs text-stone-500 mt-0.5">
+                  Farm ID: {selectedFarmModal.farmCode}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsEditFarmerOpen(false)}
+                className="text-stone-400 hover:text-stone-700"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveFarmerData} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block font-bold text-stone-700 mb-1">Tanggal Beli</label>
+                <input
+                  type="date"
+                  value={editPurchaseDate}
+                  onChange={(e) => setEditPurchaseDate(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-[#FAF7F2] border border-[#EFECE6] rounded-xl text-sm font-semibold"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-stone-700 mb-1">Alamat Lengkap</label>
+                <textarea
+                  rows={4}
+                  value={editFullAddress}
+                  onChange={(e) => setEditFullAddress(e.target.value)}
+                  placeholder="Nama jalan/dusun, RT/RW, desa/kelurahan, kecamatan, kabupaten/kota, provinsi, kode pos"
+                  className="w-full px-3.5 py-2.5 bg-[#FAF7F2] border border-[#EFECE6] rounded-xl text-sm font-semibold"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <label className="block font-bold text-stone-700">Titik GPS Kandang</label>
+                  <button
+                    type="button"
+                    onClick={() => captureGps(setEditLatitude, setEditLongitude)}
+                    className="px-3 py-1.5 rounded-lg bg-[#EAF2EC] border border-[#CDE3D3] text-[#1B3022] text-[11px] font-bold"
+                  >
+                    📍 Ambil GPS Sekarang
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="number"
+                    step="any"
+                    value={editLatitude}
+                    onChange={(e) => setEditLatitude(e.target.value)}
+                    placeholder="Latitude"
+                    className="w-full px-3 py-2.5 bg-[#FAF7F2] border border-[#EFECE6] rounded-xl text-xs font-mono"
+                  />
+                  <input
+                    type="number"
+                    step="any"
+                    value={editLongitude}
+                    onChange={(e) => setEditLongitude(e.target.value)}
+                    placeholder="Longitude"
+                    className="w-full px-3 py-2.5 bg-[#FAF7F2] border border-[#EFECE6] rounded-xl text-xs font-mono"
+                  />
+                </div>
+
+                {editLatitude && editLongitude && (
+                  <a
+                    href={`https://www.google.com/maps?q=${editLatitude},${editLongitude}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-block text-[#2D4A36] font-bold underline"
+                  >
+                    Cek titik di Google Maps
+                  </a>
+                )}
+              </div>
+
+              <div className="flex gap-2 justify-end pt-3">
+                <button
+                  type="button"
+                  onClick={() => setIsEditFarmerOpen(false)}
+                  className="px-4 py-2 text-stone-600 hover:bg-stone-100 rounded-xl font-bold"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 bg-[#1B3022] hover:bg-[#2D4A36] text-white font-bold rounded-xl shadow-xs"
+                >
+                  Simpan Data Peternak
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* MODAL: ADD FARM ID */}
       {isAddFarmOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
@@ -1316,6 +1552,61 @@ Ketik HAPUS untuk melanjutkan.`
                   placeholder="Contoh: Depok, Jawa Barat"
                   className="w-full px-3.5 py-2.5 bg-[#FAF7F2] border border-[#EFECE6] rounded-xl text-sm font-semibold text-[#1B3022]"
                 />
+              </div>
+
+              <div>
+                <label className="block font-bold text-stone-700 mb-1">Tanggal Beli</label>
+                <input
+                  type="date"
+                  value={newPurchaseDate}
+                  onChange={(e) => setNewPurchaseDate(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-[#FAF7F2] border border-[#EFECE6] rounded-xl text-sm font-semibold text-[#1B3022]"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-stone-700 mb-1">Alamat Lengkap</label>
+                <textarea
+                  rows={3}
+                  value={newFullAddress}
+                  onChange={(e) => setNewFullAddress(e.target.value)}
+                  placeholder="Nama jalan/dusun, RT/RW, desa/kelurahan, kecamatan, kabupaten/kota, provinsi, kode pos"
+                  className="w-full px-3.5 py-2.5 bg-[#FAF7F2] border border-[#EFECE6] rounded-xl text-sm font-semibold text-[#1B3022]"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <label className="block font-bold text-stone-700">Titik GPS Kandang</label>
+                  <button
+                    type="button"
+                    onClick={() => captureGps(setNewLatitude, setNewLongitude)}
+                    className="px-3 py-1.5 rounded-lg bg-[#EAF2EC] border border-[#CDE3D3] text-[#1B3022] text-[11px] font-bold"
+                  >
+                    📍 Ambil Lokasi Saya
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="number"
+                    step="any"
+                    value={newLatitude}
+                    onChange={(e) => setNewLatitude(e.target.value)}
+                    placeholder="Latitude"
+                    className="w-full px-3 py-2.5 bg-[#FAF7F2] border border-[#EFECE6] rounded-xl text-xs font-mono"
+                  />
+                  <input
+                    type="number"
+                    step="any"
+                    value={newLongitude}
+                    onChange={(e) => setNewLongitude(e.target.value)}
+                    placeholder="Longitude"
+                    className="w-full px-3 py-2.5 bg-[#FAF7F2] border border-[#EFECE6] rounded-xl text-xs font-mono"
+                  />
+                </div>
+                <p className="text-[10px] text-stone-500">
+                  GPS dapat diambil otomatis dari HP/laptop jika izin lokasi diberikan.
+                </p>
               </div>
               <div>
                 <label className="block font-bold text-stone-700 mb-1">Kapasitas Ayam</label>

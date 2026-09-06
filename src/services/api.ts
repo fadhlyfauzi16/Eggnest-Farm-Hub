@@ -165,6 +165,10 @@ export const api = {
     ownerName?: string;
     phone?: string;
     location?: string;
+    purchaseDate?: string;
+    fullAddress?: string;
+    latitude?: number | null;
+    longitude?: number | null;
     initialChickens?: number;
     chickenBreed?: string;
     initialAgeWeeks?: number;
