@@ -25,98 +25,35 @@ import {
   Award,
 } from 'lucide-react';
 
+const hasCompleteFarmLocation = (farm: any): boolean => {
+  const location = String(farm?.location ?? '').trim();
+  const locationKey = location.toLowerCase();
+  const validLocation =
+    location.length > 0 &&
+    locationKey !== 'indonesia' &&
+    !locationKey.includes('belum');
+
+  const fullAddress = String(farm?.fullAddress ?? '').trim();
+  const hasLatitude =
+    farm?.latitude !== null &&
+    farm?.latitude !== undefined &&
+    farm?.latitude !== '' &&
+    Number.isFinite(Number(farm.latitude));
+  const hasLongitude =
+    farm?.longitude !== null &&
+    farm?.longitude !== undefined &&
+    farm?.longitude !== '' &&
+    Number.isFinite(Number(farm.longitude));
+
+  return validLocation && fullAddress.length > 0 && hasLatitude && hasLongitude;
+};
+
 export const FarmProfilePage: React.FC = () => {
   const navigate = useNavigate();
-  const { farm, farmScore, setActivePage, showToast, updateFarm } = useFarm();
+  const { farm, farmScore, setActivePage, showToast } = useFarm();
   const [showQrModal, setShowQrModal] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
-  const farmData = farm as any;
-  const [location, setLocation] = useState<string>(String(farmData.location || ''));
-  const [fullAddress, setFullAddress] = useState<string>(String(farmData.fullAddress || ''));
-  const [latitude, setLatitude] = useState<string>(farmData.latitude == null ? '' : String(farmData.latitude));
-  const [longitude, setLongitude] = useState<string>(farmData.longitude == null ? '' : String(farmData.longitude));
-  const [isSavingProfile, setIsSavingProfile] = useState(false);
-  const [isGettingGps, setIsGettingGps] = useState(false);
-
-  const isProfileComplete =
-    location.trim().length > 0 &&
-    fullAddress.trim().length >= 10 &&
-    latitude !== '' &&
-    longitude !== '' &&
-    Number.isFinite(Number(latitude)) &&
-    Number.isFinite(Number(longitude));
-
-  useEffect(() => {
-    const data = farm as any;
-    setLocation(String(data.location || ''));
-    setFullAddress(String(data.fullAddress || ''));
-    setLatitude(data.latitude == null ? '' : String(data.latitude));
-    setLongitude(data.longitude == null ? '' : String(data.longitude));
-  }, [farm.id, farm.location, (farm as any).fullAddress, (farm as any).latitude, (farm as any).longitude]);
-
-  const handleGetGps = () => {
-    if (!navigator.geolocation) {
-      showToast('⚠️ Browser ini tidak mendukung GPS.');
-      return;
-    }
-
-    setIsGettingGps(true);
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setLatitude(position.coords.latitude.toFixed(7));
-        setLongitude(position.coords.longitude.toFixed(7));
-        setIsGettingGps(false);
-        showToast('📍 Titik GPS berhasil diambil.');
-      },
-      () => {
-        setIsGettingGps(false);
-        showToast('⚠️ GPS gagal diambil. Izinkan akses lokasi lalu coba lagi.');
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-    );
-  };
-
-  const handleSaveProfile = async () => {
-    if (!farm.id) {
-      showToast('⚠️ Farm ID belum terhubung.');
-      return;
-    }
-    if (!location.trim()) {
-      showToast('⚠️ Isi Kabupaten/Kota terlebih dahulu.');
-      return;
-    }
-    if (fullAddress.trim().length < 10) {
-      showToast('⚠️ Isi alamat lengkap kandang.');
-      return;
-    }
-    if (latitude === '' || longitude === '') {
-      showToast('⚠️ Ambil titik GPS kandang terlebih dahulu.');
-      return;
-    }
-
-    const lat = Number(latitude);
-    const lng = Number(longitude);
-    if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180) {
-      showToast('⚠️ Koordinat GPS tidak valid.');
-      return;
-    }
-
-    setIsSavingProfile(true);
-    try {
-      await updateFarm(
-        farm.id,
-        {
-          location: location.trim(),
-          fullAddress: fullAddress.trim(),
-          latitude: lat,
-          longitude: lng,
-        } as any
-      );
-      showToast('✅ Data kandang lengkap. Laporan harian sekarang dapat digunakan.');
-    } finally {
-      setIsSavingProfile(false);
-    }
-  };
+  const locationComplete = hasCompleteFarmLocation(farm);
 
   useEffect(() => {
     if (farm?.farmCode) {
@@ -185,7 +122,7 @@ export const FarmProfilePage: React.FC = () => {
               <div class="code">${farm.farmCode}</div>
               <div class="info">
                 <strong>Pemilik:</strong> ${farm.ownerName || 'Mitra'}<br />
-                <strong>Lokasi:</strong> ${farm.location || 'Wilayah Mitra'}<br />
+                <strong>Lokasi:</strong> ${locationComplete ? `${farm.fullAddress}, ${farm.location}` : 'Belum dilengkapi'}<br />
                 <strong>Populasi:</strong> ${farm.activeChickens} Ekor Layer
               </div>
             </div>
@@ -213,87 +150,6 @@ export const FarmProfilePage: React.FC = () => {
         <p className="text-stone-600 text-sm font-medium mt-1">
           Data registrasi, verifikasi sertifikat, status garansi, dan kartu QR Farm petugas.
         </p>
-      </div>
-
-      {/* Aktivasi Data Kandang - wajib sebelum laporan harian */}
-      <div className={`rounded-3xl border-2 p-5 md:p-7 ${isProfileComplete ? 'bg-[#EAF2EC] border-[#CDE3D3]' : 'bg-[#FFF8E8] border-[#F2D38A]'}`}>
-        <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-5">
-          <div className="space-y-2 max-w-2xl">
-            <div className="flex items-center gap-2">
-              {isProfileComplete ? <CheckCircle2 className="w-6 h-6 text-[#2D4A36]" /> : <Lock className="w-6 h-6 text-[#8A5A00]" />}
-              <h2 className="text-xl md:text-2xl font-black text-[#1B3022] font-['Outfit']">
-                {isProfileComplete ? 'Data Kandang Sudah Lengkap' : 'Aktivasi Kandang'}
-              </h2>
-            </div>
-            <p className="text-sm text-stone-600 font-medium">
-              {isProfileComplete
-                ? 'Alamat dan titik GPS sudah terverifikasi. Laporan harian dapat digunakan.'
-                : 'Lengkapi alamat dan titik GPS kandang terlebih dahulu. Sebelum data ini lengkap, Laporan Harian dikunci.'}
-            </p>
-          </div>
-          <span className={`self-start px-3 py-1.5 rounded-full text-xs font-black ${isProfileComplete ? 'bg-[#2D4A36] text-white' : 'bg-[#8A5A00] text-white'}`}>
-            {isProfileComplete ? '✓ LAPORAN AKTIF' : '🔒 LAPORAN TERKUNCI'}
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
-          <div>
-            <label className="block text-xs font-bold text-stone-600 mb-1.5">Kabupaten / Kota *</label>
-            <input
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
-              placeholder="Contoh: Klaten"
-              className="w-full px-4 py-3 rounded-2xl border border-[#E5E1D8] bg-white text-sm font-semibold text-[#1B3022] outline-none focus:ring-2 focus:ring-[#2D4A36]"
-            />
-          </div>
-          <div className="md:row-span-2">
-            <label className="block text-xs font-bold text-stone-600 mb-1.5">Alamat Lengkap Kandang *</label>
-            <textarea
-              rows={4}
-              value={fullAddress}
-              onChange={(e) => setFullAddress(e.target.value)}
-              placeholder="Dusun/Desa, RT/RW, Kecamatan, Kabupaten/Kota, Provinsi"
-              className="w-full px-4 py-3 rounded-2xl border border-[#E5E1D8] bg-white text-sm font-semibold text-[#1B3022] outline-none focus:ring-2 focus:ring-[#2D4A36] resize-none"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-stone-600 mb-1.5">Titik GPS Kandang *</label>
-            <button
-              type="button"
-              onClick={handleGetGps}
-              disabled={isGettingGps}
-              className="w-full px-4 py-3 rounded-2xl bg-[#1B3022] hover:bg-[#2D4A36] text-white font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-60 cursor-pointer"
-            >
-              <MapPin className="w-5 h-5 text-[#D4AF37]" />
-              {isGettingGps ? 'Mengambil Lokasi...' : 'Ambil Lokasi Saya'}
-            </button>
-          </div>
-        </div>
-
-        {(latitude || longitude) && (
-          <div className="mt-4 p-3 rounded-2xl bg-white border border-[#E5E1D8] text-xs text-stone-600">
-            <strong className="text-[#1B3022]">Koordinat:</strong> {latitude || '-'}, {longitude || '-'}
-            {latitude && longitude && (
-              <a
-                href={`https://www.google.com/maps?q=${latitude},${longitude}`}
-                target="_blank"
-                rel="noreferrer"
-                className="ml-2 font-bold text-[#2D4A36] underline"
-              >
-                Buka Maps
-              </a>
-            )}
-          </div>
-        )}
-
-        <button
-          type="button"
-          onClick={handleSaveProfile}
-          disabled={isSavingProfile}
-          className="mt-5 w-full md:w-auto px-6 py-3.5 rounded-2xl bg-[#D4AF37] hover:bg-[#C39D2E] text-[#1B3022] font-black text-sm shadow-sm disabled:opacity-60 cursor-pointer"
-        >
-          {isSavingProfile ? 'Menyimpan...' : isProfileComplete ? 'Simpan Perubahan Data Kandang' : 'Simpan & Aktifkan Laporan Harian'}
-        </button>
       </div>
 
       {/* Main Farm Card & QR Code Hero */}
@@ -342,7 +198,9 @@ export const FarmProfilePage: React.FC = () => {
               <span className="text-xs text-stone-500 font-semibold flex items-center gap-1.5">
                 <MapPin className="w-4 h-4 text-[#2D4A36]" /> Lokasi Kandang
               </span>
-              <p className="text-base font-bold text-[#1B3022] mt-1">{farm.location}</p>
+              <p className={`text-base font-bold mt-1 ${locationComplete ? 'text-[#1B3022]' : 'text-stone-400'}`}>
+                {locationComplete ? farm.location : 'Belum dilengkapi'}
+              </p>
             </div>
 
             <div className="p-4 rounded-2xl bg-[#FAF7F2] border border-[#EFECE6]">
@@ -383,6 +241,58 @@ export const FarmProfilePage: React.FC = () => {
               </p>
             </div>
           </div>
+
+          {locationComplete && (
+            <div className="p-5 rounded-2xl bg-[#F7F4EE] border border-[#E5E1D8] space-y-4 animate-in fade-in duration-200">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <span className="text-xs font-bold text-stone-500 uppercase tracking-wider">
+                    Data Lokasi Kandang
+                  </span>
+                  <p className="text-sm font-black text-[#1B3022] mt-0.5">
+                    Lokasi sudah terverifikasi untuk laporan harian
+                  </p>
+                </div>
+                <span className="inline-flex items-center gap-1 rounded-full bg-[#EAF2EC] border border-[#CDE3D3] px-3 py-1 text-[11px] font-black text-[#1B3022]">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> AKTIF
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="rounded-xl bg-white border border-[#EFECE6] p-4">
+                  <span className="text-xs font-semibold text-stone-500 flex items-center gap-1.5">
+                    <MapPin className="w-4 h-4 text-[#2D4A36]" /> Alamat Lengkap
+                  </span>
+                  <p className="text-sm font-bold text-[#1B3022] mt-1 leading-relaxed">
+                    {farm.fullAddress}
+                  </p>
+                  <p className="text-xs text-stone-500 mt-1">{farm.location}</p>
+                </div>
+
+                <div className="rounded-xl bg-white border border-[#EFECE6] p-4">
+                  <span className="text-xs font-semibold text-stone-500 flex items-center gap-1.5">
+                    <MapPin className="w-4 h-4 text-[#2D4A36]" /> Titik GPS
+                  </span>
+                  <p className="text-sm font-bold text-[#1B3022] mt-1">
+                    {Number(farm.latitude).toFixed(6)}, {Number(farm.longitude).toFixed(6)}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      window.open(
+                        `https://www.google.com/maps?q=${farm.latitude},${farm.longitude}`,
+                        '_blank',
+                        'noopener,noreferrer'
+                      )
+                    }
+                    className="mt-2 inline-flex items-center gap-1.5 text-xs font-bold text-[#2D4A36] hover:text-[#1B3022] cursor-pointer"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" /> Buka di Google Maps
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Garansi Card */}
           <div className="p-5 rounded-2xl bg-[#EAF2EC] border border-[#CDE3D3] flex items-center justify-between">

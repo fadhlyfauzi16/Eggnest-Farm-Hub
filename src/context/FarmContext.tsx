@@ -271,6 +271,29 @@ const localDateKey = (value: Date = new Date()): string => {
   return `${year}-${month}-${day}`;
 };
 
+const hasCompleteFarmLocation = (farm: any): boolean => {
+  const location = String(farm?.location ?? '').trim();
+  const locationKey = location.toLowerCase();
+  const validLocation =
+    location.length > 0 &&
+    locationKey !== 'indonesia' &&
+    !locationKey.includes('belum');
+
+  const fullAddress = String(farm?.fullAddress ?? '').trim();
+  const hasLatitude =
+    farm?.latitude !== null &&
+    farm?.latitude !== undefined &&
+    farm?.latitude !== '' &&
+    Number.isFinite(Number(farm.latitude));
+  const hasLongitude =
+    farm?.longitude !== null &&
+    farm?.longitude !== undefined &&
+    farm?.longitude !== '' &&
+    Number.isFinite(Number(farm.longitude));
+
+  return validLocation && fullAddress.length > 0 && hasLatitude && hasLongitude;
+};
+
 
 export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [activePage, setActivePage] = useState<ActivePage>('landing');
@@ -688,22 +711,10 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error('Farm ID belum terhubung ke akun ini. Silakan login ulang atau hubungi Admin Eggnest.');
       }
 
-      const farmData = currentFarm as any;
-      const profileComplete =
-        String(farmData.location || '').trim().length > 0 &&
-        String(farmData.fullAddress || '').trim().length >= 10 &&
-        farmData.latitude !== null &&
-        farmData.latitude !== undefined &&
-        farmData.latitude !== '' &&
-        farmData.longitude !== null &&
-        farmData.longitude !== undefined &&
-        farmData.longitude !== '' &&
-        Number.isFinite(Number(farmData.latitude)) &&
-        Number.isFinite(Number(farmData.longitude));
-
-      if (!profileComplete) {
-        showToast('🔒 Lengkapi alamat dan titik GPS kandang terlebih dahulu sebelum mengisi laporan harian.');
-        return { success: false, productivity: 0 };
+      if (!hasCompleteFarmLocation(currentFarm)) {
+        throw new Error(
+          'Data lokasi kandang belum lengkap. Isi Kabupaten/Kota, Alamat Lengkap, dan Titik GPS sebelum membuat laporan harian.'
+        );
       }
 
       const res = await api.saveDailyReport({
@@ -934,6 +945,20 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const handleQuickReportOpen = (open: boolean) => {
+    if (open && currentUser?.role === 'member' && !hasCompleteFarmLocation(currentFarm)) {
+      setIsQuickReportOpen(false);
+      setActivePage('laporan');
+
+      if (typeof window !== 'undefined') {
+        window.location.assign('/reports');
+      }
+      return;
+    }
+
+    setIsQuickReportOpen(open);
+  };
+
   return (
     <FarmContext.Provider
       value={{
@@ -956,7 +981,7 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
         adminLogs,
         isLoading,
         isQuickReportOpen,
-        setIsQuickReportOpen,
+        setIsQuickReportOpen: handleQuickReportOpen,
         textScale,
         setTextScale,
         todayReport,
