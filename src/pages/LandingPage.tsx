@@ -459,7 +459,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigateToAuth }) =>
                 </span>
               </div>
               <button
-                onClick={() => onNavigateToAuth('login')}
+                onClick={() => handleAuthNavigation('login')}
                 className="px-4 py-2 bg-[#D4AF37] text-[#1B3022] font-black text-xs rounded-xl self-start sm:self-auto cursor-pointer"
               >
                 Coba Demo Dashboard →
