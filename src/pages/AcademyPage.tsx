@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useFarm } from '../context/FarmContext';
 import { AcademyCategory, AcademyContent } from '../types';
 import {
@@ -20,6 +21,7 @@ import {
 
 export const AcademyPage: React.FC = () => {
   const { academyContents } = useFarm();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [selectedCategory, setSelectedCategory] = useState<AcademyCategory | 'Semua'>('Semua');
   const [activeContent, setActiveContent] = useState<AcademyContent | null>(null);
   const [savedIds, setSavedIds] = useState<string[]>([]);
@@ -44,6 +46,23 @@ export const AcademyPage: React.FC = () => {
   ];
 
   const publishedContents = academyContents.filter((c) => c.published);
+
+  // Deep-link dari Notification Center: /academy?content=<academy-id>
+  useEffect(() => {
+    const contentId = searchParams.get('content');
+    if (!contentId || academyContents.length === 0) return;
+    const target = academyContents.find((item) => item.id === contentId && item.published);
+    if (target) setActiveContent(target);
+  }, [searchParams, academyContents]);
+
+  const closeActiveContent = () => {
+    setActiveContent(null);
+    if (searchParams.has('content')) {
+      const next = new URLSearchParams(searchParams);
+      next.delete('content');
+      setSearchParams(next, { replace: true });
+    }
+  };
 
   const recommendedItem =
     publishedContents.find((c) => c.isRecommended) || publishedContents[0] || academyContents[0];
@@ -267,7 +286,7 @@ export const AcademyPage: React.FC = () => {
                 </h3>
               </div>
               <button
-                onClick={() => setActiveContent(null)}
+                onClick={closeActiveContent}
                 className="p-2 text-stone-400 hover:text-stone-700 rounded-full hover:bg-stone-200 cursor-pointer"
               >
                 <X className="w-6 h-6" />
@@ -326,7 +345,7 @@ export const AcademyPage: React.FC = () => {
                 Ditinjau oleh Tim Dokter Hewan & Teknis Eggnest
               </span>
               <button
-                onClick={() => setActiveContent(null)}
+                onClick={closeActiveContent}
                 className="px-5 py-2.5 bg-[#2D4A36] text-[#FDFBF7] font-bold text-sm rounded-xl hover:bg-[#1B3022] cursor-pointer"
               >
                 Selesai Belajar

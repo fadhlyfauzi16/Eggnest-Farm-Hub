@@ -163,7 +163,8 @@ interface FarmContextType {
 
   updateSettings: (newSettings: Partial<SystemSettings>) => Promise<void>;
   resolveAdminAlert: (id: string) => Promise<void>;
-  markNotificationRead: (id: string) => void;
+  markNotificationRead: (id: string) => Promise<void>;
+  markAllNotificationsRead: () => Promise<void>;
   uploadPhoto: (file: File) => Promise<string>;
 
   resetToCleanDatabase: () => Promise<void>;
@@ -246,6 +247,70 @@ const normalizeFarm = (raw: any): Farm =>
     updatedAt: raw?.updatedAt ?? raw?.updated_at ?? undefined,
   } as Farm);
 
+const normalizeAcademyContent = (raw: any): AcademyContent =>
+  ({
+    ...raw,
+    id: String(raw?.id ?? ''),
+    title: String(raw?.title ?? ''),
+    category: raw?.category ?? 'Produksi Telur',
+    description: String(raw?.description ?? ''),
+    content: String(raw?.content ?? ''),
+    type: raw?.type ?? 'article',
+    videoUrl: String(raw?.videoUrl ?? raw?.video_url ?? ''),
+    duration: String(raw?.duration ?? ''),
+    thumbnail: String(raw?.thumbnail ?? ''),
+    readTime: String(raw?.readTime ?? raw?.read_time ?? ''),
+    published: Boolean(raw?.published === true || raw?.published === 1 || raw?.published === '1'),
+    isRecommended: Boolean(
+      raw?.isRecommended === true || raw?.is_recommended === 1 || raw?.is_recommended === '1'
+    ),
+    createdAt: raw?.createdAt ?? raw?.created_at ?? undefined,
+    updatedAt: raw?.updatedAt ?? raw?.updated_at ?? undefined,
+  } as AcademyContent);
+
+
+const normalizeSupportMessage = (raw: any): SupportMessage =>
+  ({
+    ...raw,
+    id: String(raw?.id ?? ''),
+    ticketId: String(raw?.ticketId ?? raw?.ticket_id ?? ''),
+    senderId: raw?.senderId ?? raw?.sender_id ?? undefined,
+    senderName: String(raw?.senderName ?? raw?.sender_name ?? ''),
+    senderRole: raw?.senderRole ?? raw?.sender_role ?? 'member',
+    message: String(raw?.message ?? ''),
+    attachmentUrl: String(raw?.attachmentUrl ?? raw?.attachment_url ?? ''),
+    createdAt: raw?.createdAt ?? raw?.created_at ?? undefined,
+  } as SupportMessage);
+
+const normalizeSupportTicket = (raw: any): SupportTicket =>
+  ({
+    ...raw,
+    id: String(raw?.id ?? ''),
+    ticketCode: String(raw?.ticketCode ?? raw?.ticket_code ?? ''),
+    farmId: String(raw?.farmId ?? raw?.farm_id ?? ''),
+    farmCode: String(raw?.farmCode ?? raw?.farm_code ?? ''),
+    userId: raw?.userId ?? raw?.user_id ?? undefined,
+    ownerName: String(raw?.ownerName ?? raw?.owner_name ?? ''),
+    category: raw?.category ?? 'Lainnya',
+    title: String(raw?.title ?? raw?.category ?? ''),
+    description: String(raw?.description ?? ''),
+    eggCountToday:
+      raw?.eggCountToday === null || raw?.eggCountToday === undefined
+        ? raw?.egg_count_today === null || raw?.egg_count_today === undefined
+          ? undefined
+          : Number(raw.egg_count_today)
+        : Number(raw.eggCountToday),
+    photoUrl: String(raw?.photoUrl ?? raw?.photo_url ?? ''),
+    videoUrl: String(raw?.videoUrl ?? raw?.video_url ?? ''),
+    status: raw?.status ?? 'Diterima',
+    adminNotes: String(raw?.adminNotes ?? raw?.admin_notes ?? ''),
+    messages: Array.isArray(raw?.messages)
+      ? raw.messages.map(normalizeSupportMessage)
+      : [],
+    createdAt: raw?.createdAt ?? raw?.created_at ?? undefined,
+    updatedAt: raw?.updatedAt ?? raw?.updated_at ?? undefined,
+  } as SupportTicket);
+
 const normalizeReport = (raw: any): DailyReport =>
   ({
     ...raw,
@@ -305,6 +370,19 @@ const hasCompleteFarmData = (farm: any): boolean => {
 };
 
 
+const normalizeNotification = (raw: any): NotificationItem => ({
+  ...raw,
+  id: String(raw?.id ?? ''),
+  type: raw?.type ?? 'info',
+  title: String(raw?.title ?? ''),
+  message: String(raw?.message ?? ''),
+  date: String(raw?.date ?? raw?.createdAt ?? raw?.created_at ?? ''),
+  read: Boolean(raw?.read ?? raw?.isRead ?? raw?.is_read === 1),
+  link: raw?.link ?? undefined,
+  category: raw?.category ?? 'system',
+  referenceId: raw?.referenceId ?? raw?.reference_id ?? undefined,
+} as any);
+
 export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [activePage, setActivePage] = useState<ActivePage>('landing');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -353,6 +431,7 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setFarms([]);
         setAllReports([]);
         setTickets([]);
+        setNotifications([]);
         setAdminAlerts([]);
         setAdminLogs([]);
         return;
@@ -425,16 +504,25 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         const ticketsRes = await api.getTickets();
         if (ticketsRes.success && ticketsRes.tickets) {
-          setTickets(ticketsRes.tickets);
+          setTickets(ticketsRes.tickets.map(normalizeSupportTicket));
         }
       } catch {}
 
       try {
         const acadRes = await api.getAcademy(true);
         if (acadRes.success && acadRes.contents) {
-          setAcademyContents(acadRes.contents);
+          setAcademyContents(acadRes.contents.map(normalizeAcademyContent));
         }
       } catch {}
+
+      if (sessionUser.role === 'member') {
+        try {
+          const notifRes = await api.getNotifications();
+          setNotifications(notifRes.success ? (notifRes.notifications || []).map(normalizeNotification) : []);
+        } catch { setNotifications([]); }
+      } else {
+        setNotifications([]);
+      }
 
       if (sessionUser.role === 'admin') {
         try {
@@ -508,7 +596,7 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
       : 0;
 
   // Productivity = (egg_count / active_chicken_count) * 100
-  const activeChickens = currentFarm.activeChickens || 12;
+  const activeChickens = Math.max(0, Number(currentFarm.activeChickens || 0));
   const productivityRate =
     todayReport && activeChickens > 0
       ? Math.round((todayEggCount / activeChickens) * 100)
@@ -534,58 +622,26 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return null;
   }, [monthEggCount, monthFeedKg, eggsPerKg]);
 
-  // Dynamic Farm Score calculation based on real farm reports & health
+  // Dynamic Farm Score calculation based only on real persisted reports.
+  // Minimum 7 reporting days are required before an official score, tier, reward,
+  // or achievement is issued. Before that, all score values stay at 0.
   const farmScore: FarmScore = useMemo(() => {
     const farmReports = reports;
+    const minimumReportsForScore = 7;
+    const hasEnoughData = farmReports.length >= minimumReportsForScore;
 
-    // 1. Production Score (0 - 100)
-    const avgProd =
-      farmReports.length > 0
-        ? farmReports.reduce((acc, r) => acc + (r.productivityRate || 0), 0) / farmReports.length
-        : productivityRate || 75;
-    const productionScore = Math.min(100, Math.max(20, Math.round((avgProd / 85) * 90)));
+    // Streak is still useful while collecting data, so it is calculated from day one.
+    const sortedDates = Array.from(new Set<string>(farmReports.map((r) => r.date)))
+      .filter(Boolean)
+      .sort()
+      .reverse();
 
-    // 2. Report Score (0 - 100)
-    const reportScore = Math.min(
-      100,
-      Math.max(30, Math.round(farmReports.length >= 7 ? 95 : farmReports.length > 0 ? 60 + farmReports.length * 5 : 50))
-    );
-
-    // 3. Maintenance Score (0 - 100)
-    const daysWithFeed = farmReports.filter((r) => r.feedKg > 0).length;
-    const maintenanceScore =
-      farmReports.length > 0
-        ? Math.min(100, Math.max(40, Math.round((daysWithFeed / farmReports.length) * 95)))
-        : 88;
-
-    // 4. Health Score (0 - 100)
-    const healthyDays = farmReports.filter((r) => r.chickenCondition === 'healthy').length;
-    const healthRatio = farmReports.length > 0 ? healthyDays / farmReports.length : 1;
-    const mortality = Math.max(0, (currentFarm.initialChickens || 12) - (currentFarm.activeChickens || 12));
-    const healthScore = Math.min(100, Math.max(30, Math.round(healthRatio * 95 - mortality * 5)));
-
-    // Total Score (Weighted average: 35% prod + 25% report + 20% maintenance + 20% health)
-    const totalScore = Math.round(
-      productionScore * 0.35 +
-      reportScore * 0.25 +
-      maintenanceScore * 0.20 +
-      healthScore * 0.20
-    );
-
-    let statusText: 'SANGAT BAIK' | 'BAIK' | 'CUKUP' | 'PERLU PERBAIKAN' = 'BAIK';
-    if (totalScore >= 85) statusText = 'SANGAT BAIK';
-    else if (totalScore >= 70) statusText = 'BAIK';
-    else if (totalScore >= 55) statusText = 'CUKUP';
-    else statusText = 'PERLU PERBAIKAN';
-
-    // Streak Days
-    const sortedDates = Array.from(new Set<string>(farmReports.map((r) => r.date))).sort().reverse();
     let streak = 0;
     if (sortedDates.length > 0) {
       streak = 1;
       for (let i = 0; i < sortedDates.length - 1; i++) {
-        const d1 = new Date(sortedDates[i]).getTime();
-        const d2 = new Date(sortedDates[i + 1]).getTime();
+        const d1 = new Date(`${sortedDates[i]}T00:00:00`).getTime();
+        const d2 = new Date(`${sortedDates[i + 1]}T00:00:00`).getTime();
         const diffDays = Math.round((d1 - d2) / (1000 * 60 * 60 * 24));
         if (diffDays === 1) {
           streak++;
@@ -595,29 +651,161 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
 
-    const badges = [
-      {
-        id: 'badge-1',
+    // New farms must not receive fabricated scores or badges.
+    if (!hasEnoughData) {
+      return {
+        id: `score-${currentFarm.id || 'pending'}`,
+        farmId: currentFarm.id,
+        productionScore: 0,
+        reportScore: 0,
+        maintenanceScore: 0,
+        healthScore: 0,
+        totalScore: 0,
+        statusText: 'BELUM DINILAI' as any,
+        streakDays: streak,
+        badges: [],
+        updatedAt: new Date().toISOString(),
+      };
+    }
+
+    // 1. Production Score (0 - 100)
+    // Uses the actual average productivity recorded in daily reports.
+    const avgProd =
+      farmReports.reduce((acc, r) => acc + Number(r.productivityRate || 0), 0) /
+      farmReports.length;
+    const productionScore = Math.min(100, Math.max(0, Math.round(avgProd)));
+
+    // 2. Reporting Score (0 - 100)
+    // Measures consistency across the reporting period, not progress toward an arbitrary 30 reports.
+    // A member who reports every day during the observed period can receive 100.
+    const uniqueReportDates = Array.from(
+      new Set<string>(farmReports.map((r) => r.date).filter(Boolean))
+    ).sort();
+
+    let reportScore = 0;
+    if (uniqueReportDates.length > 0) {
+      const firstDate = new Date(`${uniqueReportDates[0]}T00:00:00`);
+      const lastDate = new Date(`${uniqueReportDates[uniqueReportDates.length - 1]}T00:00:00`);
+      const observedDays = Math.max(
+        1,
+        Math.round((lastDate.getTime() - firstDate.getTime()) / (1000 * 60 * 60 * 24)) + 1
+      );
+      reportScore = Math.min(
+        100,
+        Math.max(0, Math.round((uniqueReportDates.length / observedDays) * 100))
+      );
+    }
+
+    // 3. Maintenance / Feed Score (0 - 100)
+    // Uses feed plausibility relative to the ACTUAL active chicken count.
+    // Operational reference: ~0.10 kg/chicken/day. A wider 0.065-0.135 kg range
+    // receives full credit so normal variation is not punished.
+    // Very high/low values are treated as possible input or husbandry anomalies.
+    const scoreActiveChickens = Math.max(0, Number(currentFarm.activeChickens || 0));
+    const referenceFeedKg = scoreActiveChickens * 0.10;
+
+    const feedDayScores = farmReports.map((r) => {
+      const feedKg = Number(r.feedKg || 0);
+      if (feedKg <= 0 || referenceFeedKg <= 0) return 0;
+
+      const ratio = feedKg / referenceFeedKg;
+
+      if (ratio >= 0.65 && ratio <= 1.35) return 100;
+      if ((ratio >= 0.50 && ratio < 0.65) || (ratio > 1.35 && ratio <= 1.60)) return 75;
+      if ((ratio >= 0.35 && ratio < 0.50) || (ratio > 1.60 && ratio <= 2.00)) return 50;
+      if ((ratio >= 0.20 && ratio < 0.35) || (ratio > 2.00 && ratio <= 3.00)) return 25;
+      return 0;
+    });
+
+    const maintenanceScore =
+      feedDayScores.length > 0
+        ? Math.min(
+            100,
+            Math.max(
+              0,
+              Math.round(
+                feedDayScores.reduce((sum, dayScore) => sum + dayScore, 0) /
+                  feedDayScores.length
+              )
+            )
+          )
+        : 0;
+
+    // 4. Health Score (0 - 100)
+    // Based on healthy reporting days and actual chicken mortality.
+    const healthyDays = farmReports.filter((r) => r.chickenCondition === 'healthy').length;
+    const healthRatio = healthyDays / farmReports.length;
+    const initialChickens = Math.max(0, currentFarm.initialChickens || 0);
+    const activeChickens = Math.max(0, currentFarm.activeChickens || 0);
+    const mortality = Math.max(0, initialChickens - activeChickens);
+    const mortalityPenalty =
+      initialChickens > 0 ? Math.round((mortality / initialChickens) * 100) : 0;
+    const healthScore = Math.min(
+      100,
+      Math.max(0, Math.round(healthRatio * 100) - mortalityPenalty)
+    );
+
+    // Weighted total: 35% production + 25% reporting + 20% maintenance + 20% health.
+    const totalScore = Math.round(
+      productionScore * 0.35 +
+        reportScore * 0.25 +
+        maintenanceScore * 0.2 +
+        healthScore * 0.2
+    );
+
+    let statusText: 'SANGAT BAIK' | 'BAIK' | 'CUKUP' | 'PERLU PERBAIKAN' =
+      'PERLU PERBAIKAN';
+    if (totalScore >= 85) statusText = 'SANGAT BAIK';
+    else if (totalScore >= 70) statusText = 'BAIK';
+    else if (totalScore >= 55) statusText = 'CUKUP';
+
+    // Achievements are earned from real thresholds only.
+    const badges: FarmScore['badges'] = [];
+    const latestReportDate = sortedDates[0] || localDateKey();
+
+    if (avgProd >= 80) {
+      badges.push({
+        id: 'badge-production',
         icon: '🥚',
         title: 'Mitra Telur Unggul',
-        description: `Produktivitas kandang ${currentFarm.farmCode} rata-rata mencapai ${Math.round(avgProd)}%`,
-        earnedDate: currentFarm.activationDate || '2026-08-01',
-      },
-      {
-        id: 'badge-2',
+        description: `Rata-rata produktivitas kandang ${currentFarm.farmCode} mencapai ${Math.round(
+          avgProd
+        )}% dari data laporan aktual.`,
+        earnedDate: latestReportDate,
+      });
+    }
+
+    if (streak >= 7) {
+      badges.push({
+        id: 'badge-reporting',
         icon: '⭐',
         title: 'Disiplin Pelaporan',
-        description: `${farmReports.length} laporan terekam rapi di sistem Eggnest`,
-        earnedDate: farmReports[0]?.date || '2026-08-05',
-      },
-      {
-        id: 'badge-3',
+        description: `${streak} hari laporan kandang tercatat berturut-turut di sistem Eggnest.`,
+        earnedDate: latestReportDate,
+      });
+    }
+
+    if (mortality === 0 && healthRatio >= 0.9) {
+      badges.push({
+        id: 'badge-health',
         icon: '🛡️',
-        title: 'Garansi Bebas Risiko',
-        description: `Populasi ${currentFarm.activeChickens} ekor ayam aktif terjaga prima`,
-        earnedDate: currentFarm.warrantyEnd || '2026-08-20',
-      },
-    ];
+        title: 'Kesehatan Kandang Terjaga',
+        description: `Tidak ada mortalitas dan ${Math.round(
+          healthRatio * 100
+        )}% laporan menunjukkan kondisi ayam sehat.`,
+        earnedDate: latestReportDate,
+      });
+    }
+
+    if (maintenanceScore >= 90) {
+      badges.push({
+        id: 'badge-maintenance',
+        icon: '🌾',
+        title: 'Pakan Terpantau Konsisten',
+        description: `Pencatatan pakan kandang ${currentFarm.farmCode} berada dalam kisaran pemantauan yang wajar pada sebagian besar laporan.`,
+        earnedDate: latestReportDate,
+      });
+    }
 
     return {
       id: `score-${currentFarm.id}`,
@@ -632,7 +820,7 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
       badges,
       updatedAt: new Date().toISOString(),
     };
-  }, [currentFarm, reports, productivityRate]);
+  }, [currentFarm, reports]);
 
   // Actions
   const login = async (params: LoginParams) => {
@@ -764,7 +952,7 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (res.success && res.ticket) {
         showToast(res.message);
         await refreshAllData();
-        return res.ticket;
+        return normalizeSupportTicket(res.ticket);
       }
       return null;
     } catch (err: any) {
@@ -955,8 +1143,14 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const markNotificationRead = (id: string) => {
+  const markNotificationRead = async (id: string) => {
     setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+    try { await api.markNotificationRead(id); } catch { await refreshAllData(); }
+  };
+
+  const markAllNotificationsRead = async () => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    try { await api.markAllNotificationsRead(); } catch { await refreshAllData(); }
   };
 
   const uploadPhoto = async (file: File): Promise<string> => {
@@ -1056,6 +1250,7 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updateSettings,
         resolveAdminAlert,
         markNotificationRead,
+        markAllNotificationsRead,
         uploadPhoto,
         resetToCleanDatabase,
         loadDemoDatabase,

@@ -6,13 +6,10 @@ import {
   Wheat,
   ShieldCheck,
   HeartPulse,
-  Calendar,
-  Warehouse,
   TrendingUp,
   AlertTriangle,
   CheckCircle2,
   Clock,
-  ArrowUpRight,
   PlusCircle,
   Sparkles,
   ChevronRight,
@@ -21,8 +18,6 @@ import {
 } from 'lucide-react';
 import {
   ResponsiveContainer,
-  LineChart,
-  Line,
   XAxis,
   YAxis,
   Tooltip,
@@ -30,6 +25,23 @@ import {
   Area,
   AreaChart,
 } from 'recharts';
+
+
+const jakartaDateKey = (value: Date = new Date()): string => {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jakarta',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(value);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value || '';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+};
+
+const parseDateKey = (dateKey: string): number => {
+  const [year, month, day] = String(dateKey).split('-').map(Number);
+  return new Date(year || 1970, Math.max(0, (month || 1) - 1), day || 1).getTime();
+};
 
 export const HomePage: React.FC = () => {
   const navigate = useNavigate();
@@ -44,26 +56,124 @@ export const HomePage: React.FC = () => {
     productivityStatus,
     estimatedEggValue,
     averageEggsPerDay,
-    setIsQuickReportOpen,
     setActivePage,
     notifications,
     textScale,
     currentUser,
   } = useFarm();
 
-  // Prepare last 30 days chart data
-  const chartData = reports.slice(-30).map((r) => {
-    const dateObj = new Date(r.date);
-    const dayStr = !isNaN(dateObj.getTime())
-      ? dateObj.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })
-      : r.date;
+  const sortedReports = [...reports].sort((a, b) => parseDateKey(a.date) - parseDateKey(b.date));
+
+  // Grafik hanya memakai laporan nyata.
+  const chartData = sortedReports.slice(-30).map((r) => {
+    const [year, month, day] = String(r.date).split('-').map(Number);
+    const dateObj = new Date(year, (month || 1) - 1, day || 1);
     return {
-      day: dayStr,
-      telur: r.eggCount,
-      pakan: r.feedKg,
-      produktivitas: r.productivityRate,
+      day: Number.isNaN(dateObj.getTime())
+        ? r.date
+        : dateObj.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }),
+      telur: Number(r.eggCount || 0),
+      pakan: Number(r.feedKg || 0),
+      produktivitas: Number(r.productivityRate || 0),
     };
   });
+
+  const todayStr = jakartaDateKey();
+  const hasReportedToday = sortedReports.some((r) => r.date === todayStr);
+  const latestReport = sortedReports.length > 0 ? sortedReports[sortedReports.length - 1] : null;
+
+  const last7Reports = sortedReports.slice(-7);
+  const previous7Reports = sortedReports.slice(-14, -7);
+  const last3Reports = sortedReports.slice(-3);
+  const previous3Reports = sortedReports.slice(-6, -3);
+
+  const average = (values: number[]) =>
+    values.length > 0 ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+
+  const avgEggs7 = average(last7Reports.map((r) => Number(r.eggCount || 0)));
+  const avgProductivity7 = average(last7Reports.map((r) => Number(r.productivityRate || 0)));
+  const avgFeed7 = average(last7Reports.map((r) => Number(r.feedKg || 0)));
+  const previousAvgEggs7 = average(previous7Reports.map((r) => Number(r.eggCount || 0)));
+  const avgEggsLast3 = average(last3Reports.map((r) => Number(r.eggCount || 0)));
+  const avgEggsPrevious3 = average(previous3Reports.map((r) => Number(r.eggCount || 0)));
+
+  const sevenDayChange =
+    previousAvgEggs7 > 0 ? ((avgEggs7 - previousAvgEggs7) / previousAvgEggs7) * 100 : null;
+  const threeReportChange =
+    avgEggsPrevious3 > 0 ? ((avgEggsLast3 - avgEggsPrevious3) / avgEggsPrevious3) * 100 : null;
+
+  const issueReports7 = last7Reports.filter((r) => r.chickenCondition === 'issue');
+  const latestHasIssue = latestReport?.chickenCondition === 'issue';
+
+  const healthLabel =
+    !latestReport ? 'Belum Ada Data' : latestHasIssue ? 'Perlu Pantauan' : 'Baik';
+  const healthDescription =
+    !latestReport
+      ? 'Isi laporan pertama untuk menilai kondisi.'
+      : latestHasIssue
+        ? (latestReport.issueTypes || []).join(', ') || 'Ada kondisi ayam yang perlu dipantau.'
+        : issueReports7.length > 0
+          ? `${issueReports7.length} laporan dari 7 laporan terakhir memiliki catatan masalah.`
+          : 'Laporan terakhir menunjukkan kondisi sehat.';
+
+  const warrantyEndMs = farm.warrantyEnd ? parseDateKey(String(farm.warrantyEnd)) : NaN;
+  const todayMs = parseDateKey(todayStr);
+  const warrantyDaysLeft = Number.isFinite(warrantyEndMs)
+    ? Math.ceil((warrantyEndMs - todayMs) / 86400000)
+    : null;
+  const warrantyActive = warrantyDaysLeft !== null && warrantyDaysLeft >= 0;
+
+  const farmScoreReady = sortedReports.length >= 7;
+
+  const analysis = (() => {
+    if (sortedReports.length === 0) {
+      return {
+        tone: 'info',
+        title: 'Mulai dari laporan pertama',
+        message: 'Belum ada data produksi. Isi laporan harian agar Eggnest dapat membaca kondisi kandang Anda.',
+      };
+    }
+    if (latestHasIssue) {
+      return {
+        tone: 'warning',
+        title: 'Kondisi ayam perlu perhatian',
+        message: healthDescription,
+      };
+    }
+    if (sortedReports.length < 3) {
+      return {
+        tone: 'info',
+        title: 'Data awal sedang dikumpulkan',
+        message: `Sudah ada ${sortedReports.length} laporan. Minimal 3 laporan diperlukan untuk membaca arah produksi.`,
+      };
+    }
+    if (threeReportChange !== null && threeReportChange <= -10) {
+      return {
+        tone: 'warning',
+        title: 'Produksi menunjukkan penurunan',
+        message: `Rata-rata 3 laporan terakhir turun ${Math.abs(threeReportChange).toFixed(0)}% dibanding 3 laporan sebelumnya. Periksa pakan, air minum, kebersihan, dan kondisi ayam.`,
+      };
+    }
+    if (avgProductivity7 > 0 && avgProductivity7 < 75) {
+      return {
+        tone: 'warning',
+        title: 'Produktivitas perlu dipantau',
+        message: `Rata-rata produktivitas ${last7Reports.length} laporan terakhir ${avgProductivity7.toFixed(0)}%. Pantau pola pakan, air minum, sanitasi, dan kesehatan ayam.`,
+      };
+    }
+    if (sortedReports.length >= 6 && threeReportChange !== null && threeReportChange >= 10) {
+      return {
+        tone: 'success',
+        title: 'Produksi sedang meningkat',
+        message: `Rata-rata 3 laporan terakhir naik ${threeReportChange.toFixed(0)}% dibanding 3 laporan sebelumnya. Pertahankan pola perawatan yang berjalan.`,
+      };
+    }
+    return {
+      tone: 'success',
+      title: 'Kandang terpantau stabil',
+      message: `Berdasarkan ${Math.min(7, sortedReports.length)} laporan terakhir, produksi dan kondisi kandang belum menunjukkan penurunan yang berarti.`,
+    };
+  })();
 
   const formatRupiah = (num: number) => {
     return new Intl.NumberFormat('id-ID', {
@@ -77,10 +187,6 @@ export const HomePage: React.FC = () => {
     month: 'long',
     year: 'numeric',
   });
-
-  const todayStr = new Date().toISOString().split('T')[0];
-  const hasReportedToday = reports.some((r) => r.date === todayStr);
-  const latestReport = reports.length > 0 ? reports[reports.length - 1] : null;
 
   const scaleClass =
     textScale === 'xlarge' ? 'text-lg' : textScale === 'large' ? 'text-base' : 'text-sm';
@@ -102,7 +208,10 @@ export const HomePage: React.FC = () => {
 
         {/* Quick Action Button */}
         <button
-          onClick={() => setIsQuickReportOpen(true)}
+          onClick={() => {
+            setActivePage('laporan');
+            navigate('/reports');
+          }}
           className="hidden md:flex items-center gap-2 px-6 py-3.5 bg-[#2D4A36] hover:bg-[#1B3022] text-[#FDFBF7] font-bold rounded-2xl shadow-md shadow-[#2D4A36]/20 transition-all transform active:scale-98 cursor-pointer"
         >
           <PlusCircle className="w-5 h-5 text-[#D4AF37]" />
@@ -135,14 +244,14 @@ export const HomePage: React.FC = () => {
                 <span className="bg-[#588157] text-[#FDFBF7] font-black text-xs px-2.5 py-0.5 rounded-full uppercase tracking-wider shadow-xs">
                   AKTIF
                 </span>
-                <span className="text-xs text-[#A3B899] font-medium">Lohmann Brown</span>
+                <span className="text-xs text-[#A3B899] font-medium">{farm.chickenBreed || 'Jenis ayam belum diisi'}</span>
               </div>
               <p className="text-xs text-[#A3B899] font-medium">Farm ID</p>
               <h2 className="text-2xl font-black text-[#FDFBF7] font-['Outfit'] tracking-wide">
                 {farm.farmCode}
               </h2>
               <p className="text-xs text-[#EAF2EC] font-semibold flex items-center gap-1">
-                📍 {farm.location}
+                📍 {farm.location || 'Lokasi belum dilengkapi'}
               </p>
               <button
                 onClick={() => {
@@ -185,10 +294,10 @@ export const HomePage: React.FC = () => {
             <div className="bg-[#24412E] p-4 rounded-2xl border border-[#2D4A36]">
               <span className="text-xs text-[#A3B899] font-semibold block">Kesehatan</span>
               <div className="text-3xl font-black text-[#588157] font-['Outfit'] mt-1 flex items-center gap-1">
-                Baik <HeartPulse className="w-5 h-5 text-[#588157]" />
+                {healthLabel} <HeartPulse className="w-5 h-5 text-[#588157]" />
               </div>
               <span className="text-[11px] text-[#C5D6C6] font-medium block mt-0.5">
-                Semua sehat 100%
+                {healthDescription}
               </span>
             </div>
 
@@ -196,10 +305,10 @@ export const HomePage: React.FC = () => {
             <div className="bg-[#24412E] p-4 rounded-2xl border border-[#2D4A36]">
               <span className="text-xs text-[#A3B899] font-semibold block">Status Garansi</span>
               <div className="text-lg font-black text-[#D4AF37] font-['Outfit'] mt-1 flex items-center gap-1">
-                <ShieldCheck className="w-4 h-4 text-[#D4AF37]" /> Garansi Aktif
+                <ShieldCheck className="w-4 h-4 text-[#D4AF37]" /> {warrantyActive ? 'Garansi Aktif' : 'Garansi Berakhir'}
               </div>
               <span className="text-[10px] text-[#C5D6C6] font-medium block mt-0.5">
-                Hingga {farm.warrantyEnd}
+                {farm.warrantyEnd ? `Hingga ${farm.warrantyEnd}${warrantyActive && warrantyDaysLeft !== null ? ` • ${warrantyDaysLeft} hari lagi` : ''}` : 'Tanggal garansi belum tersedia'}
               </span>
             </div>
           </div>
@@ -282,7 +391,7 @@ export const HomePage: React.FC = () => {
               {formatRupiah(estimatedEggValue)}
             </div>
             <span className="text-xs text-stone-500 font-medium block mt-1">
-              Bulan ini ({monthEggCount} butir @ Rp1.500)
+              Berdasarkan produksi bulan ini ({monthEggCount} butir)
             </span>
           </div>
         </div>
@@ -305,7 +414,7 @@ export const HomePage: React.FC = () => {
                 <span className="text-sm font-bold text-stone-600">kg</span>
               </div>
               <span className="text-xs text-stone-500 font-medium block mt-1">
-                Pakan seimbang 100g / ekor
+                {hasReportedToday ? 'Berdasarkan laporan hari ini' : 'Belum ada laporan hari ini'}
               </span>
             </div>
             <div className="text-right">
@@ -333,11 +442,131 @@ export const HomePage: React.FC = () => {
         </div>
 
         <button
-          onClick={() => setIsQuickReportOpen(true)}
+          onClick={() => {
+            setActivePage('laporan');
+            navigate('/reports');
+          }}
           className="w-full md:w-auto px-8 py-4 bg-[#D4AF37] hover:bg-[#E5B842] text-[#1B3022] font-black text-lg rounded-2xl shadow-md transition-all transform hover:scale-105 active:scale-95 cursor-pointer whitespace-nowrap"
         >
           Mulai Lapor Sekarang →
         </button>
+      </div>
+
+      {/* Status Hari Ini + Analisa Eggnest */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div className="lg:col-span-5 bg-white p-6 md:p-7 rounded-3xl border border-[#EFECE6] shadow-xs">
+          <div className="flex items-center justify-between gap-3 mb-5">
+            <div>
+              <p className="text-xs font-black uppercase tracking-wider text-stone-500">Kandang Saya Hari Ini</p>
+              <h3 className="text-xl font-black text-[#1B3022] font-['Outfit'] mt-1">
+                {hasReportedToday ? 'Laporan hari ini sudah masuk' : 'Laporan hari ini belum masuk'}
+              </h3>
+            </div>
+            {hasReportedToday ? (
+              <CheckCircle2 className="w-9 h-9 text-[#2D4A36] shrink-0" />
+            ) : (
+              <Clock className="w-9 h-9 text-[#C2841E] shrink-0" />
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-2xl bg-[#F7F4EE] p-4 border border-[#EFECE6]">
+              <span className="text-xs text-stone-500 font-bold">Ayam Aktif</span>
+              <p className="text-2xl font-black text-[#1B3022] mt-1">{farm.activeChickens || 0} ekor</p>
+            </div>
+            <div className="rounded-2xl bg-[#F7F4EE] p-4 border border-[#EFECE6]">
+              <span className="text-xs text-stone-500 font-bold">Telur</span>
+              <p className="text-2xl font-black text-[#1B3022] mt-1">{hasReportedToday ? todayEggCount : '—'}{hasReportedToday ? ' butir' : ''}</p>
+            </div>
+            <div className="rounded-2xl bg-[#F7F4EE] p-4 border border-[#EFECE6]">
+              <span className="text-xs text-stone-500 font-bold">Pakan</span>
+              <p className="text-2xl font-black text-[#1B3022] mt-1">{hasReportedToday ? `${String(todayFeedKg).replace('.', ',')} kg` : '—'}</p>
+            </div>
+            <div className="rounded-2xl bg-[#F7F4EE] p-4 border border-[#EFECE6]">
+              <span className="text-xs text-stone-500 font-bold">Produktivitas</span>
+              <p className="text-2xl font-black text-[#2D4A36] mt-1">{hasReportedToday ? `${productivityRate}%` : '—'}</p>
+            </div>
+          </div>
+
+          {!hasReportedToday && (
+            <button
+              onClick={() => {
+                setActivePage('laporan');
+                navigate('/reports');
+              }}
+              className="w-full mt-4 py-3.5 rounded-2xl bg-[#D4AF37] hover:bg-[#C49C24] text-[#1B3022] font-black cursor-pointer"
+            >
+              LAPOR SEKARANG →
+            </button>
+          )}
+        </div>
+
+        <div className={`lg:col-span-7 p-6 md:p-7 rounded-3xl border shadow-xs ${
+          analysis.tone === 'warning'
+            ? 'bg-[#FFF8E8] border-[#FDE68A]'
+            : analysis.tone === 'success'
+              ? 'bg-[#EAF2EC] border-[#CDE3D3]'
+              : 'bg-[#F0F7F9] border-[#CFE4EC]'
+        }`}>
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-white flex items-center justify-center shrink-0 border border-black/5">
+              {analysis.tone === 'warning' ? (
+                <AlertTriangle className="w-6 h-6 text-[#C2841E]" />
+              ) : analysis.tone === 'success' ? (
+                <Sparkles className="w-6 h-6 text-[#2D4A36]" />
+              ) : (
+                <Info className="w-6 h-6 text-[#2B6E7F]" />
+              )}
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-black uppercase tracking-wider text-stone-500">Analisa Eggnest</p>
+              <h3 className="text-xl md:text-2xl font-black text-[#1B3022] font-['Outfit'] mt-1">{analysis.title}</h3>
+              <p className="text-sm text-stone-700 font-medium mt-2 leading-relaxed">{analysis.message}</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-5">
+            <div className="bg-white/80 rounded-2xl p-4 border border-black/5">
+              <span className="text-xs text-stone-500 font-bold">Rata-rata 7 Laporan</span>
+              <p className="text-xl font-black text-[#1B3022] mt-1">
+                {last7Reports.length > 0 ? `${avgEggs7.toFixed(1).replace('.', ',')} telur` : '—'}
+              </p>
+            </div>
+            <div className="bg-white/80 rounded-2xl p-4 border border-black/5">
+              <span className="text-xs text-stone-500 font-bold">Rata-rata Pakan</span>
+              <p className="text-xl font-black text-[#1B3022] mt-1">
+                {last7Reports.length > 0 ? `${avgFeed7.toFixed(1).replace('.', ',')} kg` : '—'}
+              </p>
+            </div>
+            <div className="bg-white/80 rounded-2xl p-4 border border-black/5">
+              <span className="text-xs text-stone-500 font-bold">Dibanding 7 Sebelumnya</span>
+              <p className="text-xl font-black text-[#1B3022] mt-1">
+                {sevenDayChange === null ? 'Belum cukup data' : `${sevenDayChange >= 0 ? '+' : ''}${sevenDayChange.toFixed(0)}%`}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-3 mt-5">
+            <button
+              onClick={() => {
+                setActivePage('perkembangan');
+                navigate('/development');
+              }}
+              className="px-5 py-3 rounded-2xl bg-[#1B3022] text-white font-black text-sm cursor-pointer"
+            >
+              Lihat Analisa & Perkembangan →
+            </button>
+            <button
+              onClick={() => {
+                setActivePage('score');
+                navigate('/score');
+              }}
+              className="px-5 py-3 rounded-2xl bg-white text-[#1B3022] border border-[#D9D4C7] font-black text-sm cursor-pointer"
+            >
+              {farmScoreReady ? 'Lihat Farm Score' : `Farm Score • ${sortedReports.length}/7 laporan`}
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Trend Produksi Chart & Ringkasan Bulan Ini */}
@@ -351,7 +580,7 @@ export const HomePage: React.FC = () => {
                 Trend Produksi
               </h3>
               <p className="text-xs text-stone-500 font-medium">
-                Data 30 hari terakhir (Rata-rata 7–12 telur per hari)
+                {chartData.length > 0 ? `${chartData.length} laporan terakhir dari data nyata` : 'Belum ada data produksi untuk ditampilkan'}
               </p>
             </div>
 
@@ -384,11 +613,11 @@ export const HomePage: React.FC = () => {
                   interval="preserveStartEnd"
                 />
                 <YAxis
-                  domain={[0, 14]}
+                  domain={[0, (dataMax: number) => Math.max(Number(farm.activeChickens || 0), dataMax + 1, 1)]}
+                  allowDecimals={false}
                   tickLine={false}
                   stroke="#A3B899"
                   fontSize={11}
-                  ticks={[0, 4, 8, 10, 12, 14]}
                 />
                 <Tooltip
                   content={({ active, payload }) => {
@@ -489,70 +718,50 @@ export const HomePage: React.FC = () => {
               Pemberitahuan & Peringatan
             </h3>
             <span className="bg-[#FAF7F2] text-stone-700 text-xs font-semibold px-2 py-0.5 rounded-full border border-[#EFECE6]">
-              {notifications.length > 0 ? `${notifications.length} item` : 'Sistem Aktif'}
+              {notifications.filter((item: any) => !item.read).length > 0
+                ? `${notifications.filter((item: any) => !item.read).length} belum dibaca`
+                : 'Sistem Aktif'}
             </span>
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Card 1: Alert/Health Status */}
-          {productivityRate < 70 && reports.length > 0 ? (
-            <div className="p-4 rounded-2xl bg-[#FEF6E9] border border-[#FDE68A] flex flex-col justify-between">
-              <div className="flex items-start gap-3">
-                <div className="p-2 rounded-xl bg-[#FDE68A] text-[#78350F] shrink-0">
+          {/* Card 1: Analisa kondisi dari data nyata */}
+          <div className={`p-4 rounded-2xl border flex flex-col justify-between ${
+            analysis.tone === 'warning'
+              ? 'bg-[#FEF6E9] border-[#FDE68A]'
+              : analysis.tone === 'success'
+                ? 'bg-[#EAF2EC] border-[#CDE3D3]'
+                : 'bg-[#F0F7F9] border-[#CFE4EC]'
+          }`}>
+            <div className="flex items-start gap-3">
+              <div className="p-2 rounded-xl bg-white shrink-0 border border-black/5">
+                {analysis.tone === 'warning' ? (
                   <AlertTriangle className="w-5 h-5 text-[#C2841E]" />
-                </div>
-                <div>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-[#78350F] bg-white px-2 py-0.5 rounded border border-[#FDE68A]">
-                    Status Perhatian
-                  </span>
-                  <h4 className="font-bold text-[#1B3022] text-sm mt-1.5">
-                    Produktivitas {productivityRate}%
-                  </h4>
-                  <p className="text-xs text-stone-600 mt-1">
-                    Produksi di bawah target 70%. Periksa kualitas pakan & sanitasi air minum.
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => {
-                  setActivePage('perkembangan');
-                  navigate('/development');
-                }}
-                className="mt-3 text-xs font-bold text-[#78350F] hover:underline text-left cursor-pointer"
-              >
-                Lihat Analisa & Solusi →
-              </button>
-            </div>
-          ) : (
-            <div className="p-4 rounded-2xl bg-[#EAF2EC] border border-[#CDE3D3] flex flex-col justify-between">
-              <div className="flex items-start gap-3">
-                <div className="p-2 rounded-xl bg-[#CDE3D3] text-[#1B3022] shrink-0">
+                ) : analysis.tone === 'success' ? (
                   <HeartPulse className="w-5 h-5 text-[#2D4A36]" />
-                </div>
-                <div>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-[#1B3022] bg-white px-2 py-0.5 rounded border border-[#CDE3D3]">
-                    Kondisi Prima
-                  </span>
-                  <h4 className="font-bold text-[#1B3022] text-sm mt-1.5">
-                    Kandang Terpantau Baik
-                  </h4>
-                  <p className="text-xs text-stone-600 mt-1">
-                    Produksi telur stabil dan populasi {farm.activeChickens} ekor ayam dalam kondisi optimal.
-                  </p>
-                </div>
+                ) : (
+                  <Info className="w-5 h-5 text-[#2B6E7F]" />
+                )}
               </div>
-              <button
-                onClick={() => {
-                  setActivePage('perkembangan');
-                  navigate('/development');
-                }}
-                className="mt-3 text-xs font-bold text-[#2D4A36] hover:underline text-left cursor-pointer"
-              >
-                Lihat Grafik Analisa →
-              </button>
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[#1B3022] bg-white px-2 py-0.5 rounded border border-black/5">
+                  Analisa Eggnest
+                </span>
+                <h4 className="font-bold text-[#1B3022] text-sm mt-1.5">{analysis.title}</h4>
+                <p className="text-xs text-stone-600 mt-1">{analysis.message}</p>
+              </div>
             </div>
-          )}
+            <button
+              onClick={() => {
+                setActivePage('perkembangan');
+                navigate('/development');
+              }}
+              className="mt-3 text-xs font-bold text-[#2D4A36] hover:underline text-left cursor-pointer"
+            >
+              Lihat Analisa & Solusi →
+            </button>
+          </div>
 
           {/* Card 2: Pengingat Lapor Hari Ini */}
           {hasReportedToday ? (
@@ -602,7 +811,10 @@ export const HomePage: React.FC = () => {
                 </div>
               </div>
               <button
-                onClick={() => setIsQuickReportOpen(true)}
+                onClick={() => {
+            setActivePage('laporan');
+            navigate('/reports');
+          }}
                 className="mt-3 text-xs font-bold text-[#2B6E7F] hover:underline text-left cursor-pointer"
               >
                 Isi Laporan Sekarang →
@@ -610,7 +822,7 @@ export const HomePage: React.FC = () => {
             </div>
           )}
 
-          {/* Card 3: Riwayat Verifikasi Terakhir */}
+          {/* Card 3: Riwayat Laporan Terakhir */}
           {latestReport ? (
             <div className="p-4 rounded-2xl bg-[#FAF7F2] border border-[#EFECE6] flex flex-col justify-between">
               <div className="flex items-start gap-3">
@@ -622,7 +834,7 @@ export const HomePage: React.FC = () => {
                     Sinkronisasi
                   </span>
                   <h4 className="font-bold text-[#1B3022] text-sm mt-1.5">
-                    Laporan Terverifikasi
+                    Laporan Terakhir Tersimpan
                   </h4>
                   <p className="text-xs text-stone-600 mt-1">
                     Laporan tanggal {latestReport.date} ({latestReport.eggCount} butir) tersimpan aman di server Eggnest.
@@ -658,7 +870,10 @@ export const HomePage: React.FC = () => {
                 </div>
               </div>
               <button
-                onClick={() => setIsQuickReportOpen(true)}
+                onClick={() => {
+            setActivePage('laporan');
+            navigate('/reports');
+          }}
                 className="mt-3 text-xs font-bold text-[#2D4A36] hover:underline text-left cursor-pointer"
               >
                 Buat Laporan Pertama →

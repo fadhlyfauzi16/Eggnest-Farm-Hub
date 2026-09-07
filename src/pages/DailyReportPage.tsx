@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { ChickenHealthPicker, ChickenHealthItem } from '../components/common/ChickenHealthPicker';
+import { api } from '../services/api';
 
 const localDateKey = (value: Date = new Date()): string => {
   const year = value.getFullYear();
@@ -45,6 +46,15 @@ const formatLongDateId = (dateKey: string): string => {
   }).format(value);
 };
 
+
+const CHICKEN_TYPE_OPTIONS = [
+  'Ayam Petelur Cokelat',
+  'Ayam Petelur Putih',
+  'Ayam Kampung Petelur',
+  'Ayam Arab Petelur',
+  'Ayam Joper',
+  'Ayam Petelur Lainnya',
+] as const;
 
 const hasCompleteFarmData = (farm: any): boolean => {
   const location = String(farm?.location ?? '').trim();
@@ -81,7 +91,7 @@ export const DailyReportPage: React.FC = () => {
   const [activationLongitude, setActivationLongitude] = useState<number | null>(
     farm.longitude == null || farm.longitude === '' ? null : Number(farm.longitude)
   );
-  const [activationBreed, setActivationBreed] = useState<string>(String(farm.chickenBreed ?? ''));
+  const [activationBreed, setActivationBreed] = useState<string>(String(farm.chickenBreed ?? '') || 'Ayam Petelur Cokelat');
   const [activationChickenCount, setActivationChickenCount] = useState<number>(Number(farm.activeChickens ?? 0));
   const [activationAgeWeeks, setActivationAgeWeeks] = useState<number>(Number(farm.currentAgeWeeks ?? 0));
   const [isGettingGps, setIsGettingGps] = useState(false);
@@ -101,14 +111,14 @@ export const DailyReportPage: React.FC = () => {
     setActivationLongitude(
       farm.longitude == null || farm.longitude === '' ? null : Number(farm.longitude)
     );
-    setActivationBreed(String(farm.chickenBreed ?? ''));
+    setActivationBreed(String(farm.chickenBreed ?? '') || 'Ayam Petelur Cokelat');
     setActivationChickenCount(Number(farm.activeChickens ?? 0));
     setActivationAgeWeeks(Number(farm.currentAgeWeeks ?? 0));
   }, [farm.id, farm.location, farm.fullAddress, farm.latitude, farm.longitude, farm.chickenBreed, farm.activeChickens, farm.currentAgeWeeks]);
 
   const [date, setDate] = useState<string>(() => localDateKey());
-  const [eggCount, setEggCount] = useState<number>(10);
-  const [feedKg, setFeedKg] = useState<number>(1.2);
+  const [eggCount, setEggCount] = useState<number>(0);
+  const [feedKg, setFeedKg] = useState<number>(0);
   const [chickenCondition, setChickenCondition] = useState<ChickenCondition>('healthy');
   const [chickensState, setChickensState] = useState<ChickenHealthItem[]>(() =>
     Array.from({ length: totalChickensCount }, (_, i) => ({
@@ -127,6 +137,8 @@ export const DailyReportPage: React.FC = () => {
 
   const [notes, setNotes] = useState<string>('');
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [selectedReportPhoto, setSelectedReportPhoto] = useState<DailyReport | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   // Success state banner
@@ -187,7 +199,7 @@ export const DailyReportPage: React.FC = () => {
     }
     const cleanBreed = activationBreed.trim();
     if (!cleanBreed) {
-      showToast('⚠️ Jenis/strain ayam wajib diisi.');
+      showToast('⚠️ Jenis ayam wajib dipilih.');
       return;
     }
     if (!Number.isInteger(activationChickenCount) || activationChickenCount < 1) {
@@ -225,17 +237,53 @@ export const DailyReportPage: React.FC = () => {
 
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setPhotoPreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      showToast('⚠️ Foto harus berformat JPG, PNG, atau WEBP.');
+      e.target.value = '';
+      return;
     }
+
+    if (file.size > 5 * 1024 * 1024) {
+      showToast('⚠️ Ukuran foto maksimal 5 MB.');
+      e.target.value = '';
+      return;
+    }
+
+    setPhotoFile(file);
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setPhotoPreview(reader.result as string);
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!Number.isInteger(eggCount) || eggCount < 0) {
+      showToast('⚠️ Jumlah telur harus berupa angka bulat 0 atau lebih.');
+      return;
+    }
+
+    if (!Number.isFinite(feedKg) || feedKg < 0) {
+      showToast('⚠️ Jumlah pakan tidak valid.');
+      return;
+    }
+
+    const activeChickenCount = Math.max(0, Number(farm.activeChickens || 0));
+    const highFeedThresholdKg = activeChickenCount > 0 ? activeChickenCount * 0.2 : 0;
+
+    if (highFeedThresholdKg > 0 && feedKg > highFeedThresholdKg) {
+      const proceed = window.confirm(
+        `Pakan ${String(feedKg).replace('.', ',')} kg untuk ${activeChickenCount} ayam terlihat jauh di atas takaran umum. Apakah angka ini sudah benar?`
+      );
+      if (!proceed) return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -267,6 +315,20 @@ export const DailyReportPage: React.FC = () => {
         }
       }
 
+      let uploadedPhotoUrl: string | undefined;
+
+      if (photoFile) {
+        try {
+          showToast('📷 Mengupload foto laporan...');
+          const uploaded = await api.uploadFile(photoFile);
+          uploadedPhotoUrl = uploaded.url;
+        } catch (error: any) {
+          showToast(`⚠️ Foto gagal diupload: ${error?.message || 'Silakan coba lagi.'}`);
+          setSavedSuccess(false);
+          return;
+        }
+      }
+
       const res = await addDailyReport({
         date,
         eggCount,
@@ -274,7 +336,7 @@ export const DailyReportPage: React.FC = () => {
         chickenCondition,
         issueTypes: chickenCondition === 'issue' ? aggregatedIssues : undefined,
         notes: notes.trim() || undefined,
-        photoUrl: photoPreview || undefined,
+        photoUrl: uploadedPhotoUrl,
       });
 
       if (!res.success) {
@@ -286,6 +348,8 @@ export const DailyReportPage: React.FC = () => {
         res.productivity || Math.round((eggCount / Math.max(1, farm.activeChickens || 0)) * 100);
       setLastStats({ eggs: eggCount, prod });
       setSavedSuccess(true);
+      setPhotoFile(null);
+      setPhotoPreview(null);
 
       try {
         confetti({
@@ -389,13 +453,70 @@ export const DailyReportPage: React.FC = () => {
                 </button>
 
                 {gpsReady ? (
-                  <div className="rounded-2xl bg-[#EAF2EC] border border-[#CDE3D3] p-3.5">
-                    <div className="flex items-center gap-2 text-sm font-black text-[#1B3022]">
-                      <Check className="w-4 h-4" /> GPS berhasil diperoleh
+                  <div className="space-y-3">
+                    <div className="rounded-2xl bg-[#EAF2EC] border border-[#CDE3D3] p-3.5">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                        <div>
+                          <div className="flex items-center gap-2 text-sm font-black text-[#1B3022]">
+                            <Check className="w-4 h-4" /> GPS berhasil diperoleh
+                          </div>
+                          <p className="text-xs text-stone-600 mt-1 font-medium">
+                            {Number(activationLatitude).toFixed(6)}, {Number(activationLongitude).toFixed(6)}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            window.open(
+                              `https://www.google.com/maps?q=${activationLatitude},${activationLongitude}`,
+                              '_blank',
+                              'noopener,noreferrer'
+                            )
+                          }
+                          className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-white border border-[#CDE3D3] text-xs font-black text-[#1B3022] hover:bg-[#FDFBF7]"
+                        >
+                          <MapPin className="w-3.5 h-3.5" />
+                          Buka Google Maps
+                        </button>
+                      </div>
                     </div>
-                    <p className="text-xs text-stone-600 mt-1 font-medium">
-                      {Number(activationLatitude).toFixed(6)}, {Number(activationLongitude).toFixed(6)}
-                    </p>
+
+                    <div className="rounded-2xl overflow-hidden border border-[#D9D4C8] bg-white">
+                      <div className="px-3.5 py-3 border-b border-[#EFECE6] flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-xl bg-[#EAF2EC] flex items-center justify-center">
+                          <Navigation className="w-4 h-4 text-[#2D4A36]" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-black text-[#1B3022] uppercase tracking-wider">
+                            Cek Lokasi Kandang
+                          </p>
+                          <p className="text-[11px] text-stone-500">
+                            Pastikan titik pada peta sesuai lokasi kandang Anda.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="relative w-full h-[220px] sm:h-[250px] bg-[#EAF2EC]">
+                        <iframe
+                          title="Preview lokasi kandang"
+                          src={`https://maps.google.com/maps?q=${encodeURIComponent(
+                            `${activationLatitude},${activationLongitude}`
+                          )}&z=18&output=embed`}
+                          className="absolute inset-0 w-full h-full border-0"
+                          loading="lazy"
+                          referrerPolicy="no-referrer-when-downgrade"
+                          allowFullScreen
+                        />
+                      </div>
+
+                      <div className="px-3.5 py-3 bg-[#FDFBF7] flex items-start gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-[#2D4A36] shrink-0 mt-0.5" />
+                        <p className="text-[11px] text-stone-600 leading-relaxed">
+                          Jika titik belum tepat, tekan <strong>Ambil Ulang Lokasi</strong> sambil berada di dekat kandang.
+                          Data GPS ini akan disimpan sebagai lokasi Farm ID.
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 ) : (
                   <div className="rounded-2xl bg-[#FAF7F2] border border-[#EFECE6] p-3.5 text-xs text-stone-500">
@@ -417,14 +538,22 @@ export const DailyReportPage: React.FC = () => {
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="space-y-2 md:col-span-1">
-                    <label className="text-sm font-black text-[#1B3022]">Jenis / Strain Ayam *</label>
-                    <input
-                      type="text"
+                    <label className="text-sm font-black text-[#1B3022]">Jenis Ayam *</label>
+                    <select
                       value={activationBreed}
                       onChange={(e) => setActivationBreed(e.target.value)}
-                      placeholder="Contoh: Lohmann Brown"
                       className="w-full px-4 py-3.5 rounded-2xl border border-[#D9D4C8] bg-[#FDFBF7] text-[#1B3022] font-bold outline-none focus:ring-2 focus:ring-[#2D4A36]"
-                    />
+                    >
+                      {!CHICKEN_TYPE_OPTIONS.includes(activationBreed as any) && activationBreed && (
+                        <option value={activationBreed}>{activationBreed}</option>
+                      )}
+                      {CHICKEN_TYPE_OPTIONS.map((type) => (
+                        <option key={type} value={type}>
+                          {type === 'Ayam Petelur Cokelat' ? `${type} — utama paket Eggnest` : type}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[11px] font-semibold text-stone-500">Ayam pada paket utama Eggnest termasuk kategori ayam petelur cokelat.</p>
                   </div>
 
                   <div className="space-y-2">
@@ -602,10 +731,21 @@ export const DailyReportPage: React.FC = () => {
                 <Minus className="w-6 h-6" />
               </button>
 
-              <div className="flex-1 max-w-[150px] text-center bg-white py-2.5 px-4 rounded-2xl border-2 border-[#2D4A36]/40 shadow-inner">
-                <span className="text-4xl sm:text-5xl font-black text-[#1B3022] font-['Outfit'] block leading-none">
-                  {eggCount}
-                </span>
+              <div className="flex-1 max-w-[170px] text-center bg-white py-2 px-3 rounded-2xl border-2 border-[#2D4A36]/40 shadow-inner focus-within:border-[#2D4A36] focus-within:ring-2 focus-within:ring-[#2D4A36]/10">
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  inputMode="numeric"
+                  value={eggCount}
+                  onFocus={(e) => e.currentTarget.select()}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setEggCount(value === '' ? 0 : Math.max(0, Math.floor(Number(value) || 0)));
+                  }}
+                  aria-label="Jumlah telur hari ini"
+                  className="w-full bg-transparent text-center text-4xl sm:text-5xl font-black text-[#1B3022] font-['Outfit'] leading-none outline-none appearance-none"
+                />
                 <span className="text-[11px] text-stone-500 font-bold uppercase tracking-wider mt-1 block">
                   butir
                 </span>
@@ -626,9 +766,9 @@ export const DailyReportPage: React.FC = () => {
               <span className="text-xs font-semibold text-stone-600">
                 Produktivitas:{' '}
                 <strong className="text-[#2D4A36]">
-                  {Math.round((eggCount / (farm.activeChickens || 12)) * 100)}%
+                  {farm.activeChickens > 0 ? Math.round((eggCount / farm.activeChickens) * 100) : 0}%
                 </strong>{' '}
-                ({eggCount} butir / {farm.activeChickens || 12} ayam)
+                ({eggCount} butir / {farm.activeChickens || 0} ayam)
               </span>
             </div>
           </div>
@@ -663,10 +803,25 @@ export const DailyReportPage: React.FC = () => {
                 <Minus className="w-6 h-6" />
               </button>
 
-              <div className="flex-1 max-w-[150px] text-center bg-white py-2.5 px-4 rounded-2xl border-2 border-[#2D4A36]/40 shadow-inner">
-                <span className="text-4xl sm:text-5xl font-black text-[#1B3022] font-['Outfit'] block leading-none">
-                  {feedKg.toString().replace('.', ',')}
-                </span>
+              <div className="flex-1 max-w-[170px] text-center bg-white py-2 px-3 rounded-2xl border-2 border-[#2D4A36]/40 shadow-inner focus-within:border-[#2D4A36] focus-within:ring-2 focus-within:ring-[#2D4A36]/10">
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={feedKg === 0 ? '0' : String(feedKg).replace('.', ',')}
+                  onFocus={(e) => e.currentTarget.select()}
+                  onChange={(e) => {
+                    const raw = e.target.value.replace(',', '.').replace(/[^0-9.]/g, '');
+                    const parts = raw.split('.');
+                    const normalized =
+                      parts.length > 1 ? `${parts[0]}.${parts.slice(1).join('')}` : parts[0];
+                    const value = normalized === '' ? 0 : Number(normalized);
+                    if (Number.isFinite(value)) {
+                      setFeedKg(Math.max(0, value));
+                    }
+                  }}
+                  aria-label="Jumlah pakan hari ini dalam kilogram"
+                  className="w-full bg-transparent text-center text-4xl sm:text-5xl font-black text-[#1B3022] font-['Outfit'] leading-none outline-none"
+                />
                 <span className="text-[11px] text-stone-500 font-bold uppercase tracking-wider mt-1 block">
                   kg pakan
                 </span>
@@ -724,7 +879,7 @@ export const DailyReportPage: React.FC = () => {
             <label className="border-2 border-dashed border-[#E5E1D8] hover:border-[#2D4A36] rounded-2xl p-4 sm:p-5 flex flex-col items-center justify-center cursor-pointer bg-white hover:bg-[#FAF7F2] transition-all">
               <input
                 type="file"
-                accept="image/png, image/jpeg, image/jpg"
+                accept="image/png, image/jpeg, image/webp"
                 onChange={handlePhotoUpload}
                 className="hidden"
               />
@@ -825,6 +980,7 @@ export const DailyReportPage: React.FC = () => {
                 <th className="py-3 px-3">Pakan (kg)</th>
                 <th className="py-3 px-3">Produktivitas</th>
                 <th className="py-3 px-3">Kondisi</th>
+                <th className="py-3 px-3">Foto</th>
                 <th className="py-3 px-3">Catatan</th>
               </tr>
             </thead>
@@ -856,6 +1012,27 @@ export const DailyReportPage: React.FC = () => {
                       </span>
                     )}
                   </td>
+                  <td className="py-3.5 px-3">
+                    {rep.photoUrl ? (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedReportPhoto(rep)}
+                        className="group relative w-14 h-14 rounded-xl overflow-hidden border-2 border-[#E5E1D8] hover:border-[#2D4A36] shadow-sm cursor-pointer bg-[#F7F4EE]"
+                        title="Lihat foto laporan"
+                      >
+                        <img
+                          src={rep.photoUrl}
+                          alt={`Foto laporan ${rep.date}`}
+                          className="w-full h-full object-cover transition-transform group-hover:scale-105"
+                        />
+                        <span className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+                          <Camera className="w-4 h-4 text-white opacity-0 group-hover:opacity-100" />
+                        </span>
+                      </button>
+                    ) : (
+                      <span className="text-stone-400">—</span>
+                    )}
+                  </td>
                   <td className="py-3.5 px-3 text-xs text-stone-500 max-w-xs truncate">
                     {rep.notes || '-'}
                   </td>
@@ -865,6 +1042,68 @@ export const DailyReportPage: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {selectedReportPhoto?.photoUrl && (
+        <div
+          className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setSelectedReportPhoto(null)}
+        >
+          <div
+            className="bg-white rounded-3xl overflow-hidden shadow-2xl w-full max-w-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-4 bg-[#1B3022] text-white flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-[#D4AF37] font-black">
+                  Foto Laporan Kandang
+                </p>
+                <h3 className="font-black font-['Outfit']">
+                  {formatLongDateId(selectedReportPhoto.date)}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedReportPhoto(null)}
+                className="w-9 h-9 rounded-xl bg-white/10 hover:bg-white/20 font-black cursor-pointer"
+                aria-label="Tutup foto"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="bg-black">
+              <img
+                src={selectedReportPhoto.photoUrl}
+                alt={`Foto kondisi kandang ${selectedReportPhoto.date}`}
+                className="w-full max-h-[65vh] object-contain"
+              />
+            </div>
+
+            <div className="p-5 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+              <div className="bg-[#F7F4EE] rounded-xl p-3">
+                <span className="text-stone-500">Farm ID</span>
+                <p className="font-black text-[#1B3022] mt-1">{farm.farmCode}</p>
+              </div>
+              <div className="bg-[#F7F4EE] rounded-xl p-3">
+                <span className="text-stone-500">Telur</span>
+                <p className="font-black text-[#1B3022] mt-1">{selectedReportPhoto.eggCount} butir</p>
+              </div>
+              <div className="bg-[#F7F4EE] rounded-xl p-3">
+                <span className="text-stone-500">Pakan</span>
+                <p className="font-black text-[#1B3022] mt-1">
+                  {String(selectedReportPhoto.feedKg).replace('.', ',')} kg
+                </p>
+              </div>
+              <div className="bg-[#F7F4EE] rounded-xl p-3">
+                <span className="text-stone-500">Kondisi</span>
+                <p className="font-black text-[#1B3022] mt-1">
+                  {selectedReportPhoto.chickenCondition === 'healthy' ? '🟢 Sehat' : '🟡 Perlu Pantauan'}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -26,7 +26,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onNavigate }) => {
     setActivePage,
     currentUser,
     farm,
-    setIsQuickReportOpen,
+    farmScore,
     notifications,
     adminAlerts,
     logout,
@@ -43,8 +43,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onNavigate }) => {
   };
 
   const handleQuickReport = () => {
-    setIsQuickReportOpen(true);
-    if (onNavigate) onNavigate();
+    handleNavigate('/reports', 'laporan');
   };
 
   const handleLogout = () => {
@@ -69,7 +68,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onNavigate }) => {
     { id: 'perkembangan', path: '/development', aliasPath: '/perkembangan', label: 'Perkembangan', icon: TrendingUp },
     { id: 'academy', path: '/academy', label: 'Academy', icon: GraduationCap, badge: 'Baru' },
     { id: 'bantuan', path: '/support', aliasPath: '/bantuan', label: 'Bantuan & Konsultasi', icon: Headphones },
-    { id: 'score', path: '/score', aliasPath: '/farm', label: 'Farm Score', icon: Award, badge: '92' },
+    { id: 'score', path: '/score', aliasPath: '/farm', label: 'Farm Score', icon: Award, badge: farmScore.totalScore > 0 ? farmScore.totalScore : undefined },
     { id: 'profil', path: '/profile', aliasPath: '/profil', label: 'Profil Kandang', icon: Warehouse },
   ];
 
@@ -81,8 +80,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ onNavigate }) => {
     label: string;
     icon: React.FC<{ className?: string }>;
     badge?: number;
+    queryTab?: string;
   }[] = [
     { id: 'admin', path: '/admin', label: 'Control Center', icon: ShieldAlert, badge: unresolvedAlerts || undefined },
+    { id: 'admin', path: '/admin?tab=academy', label: 'Academy Management', icon: GraduationCap, queryTab: 'academy' },
     { id: 'apidocs', path: '/apidocs', label: 'Dokumentasi API', icon: Code2 },
   ];
 
@@ -153,10 +154,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ onNavigate }) => {
 
           {(isAdmin ? adminNavItems : memberNavItems).map((item) => {
             const Icon = item.icon;
+            const currentTab = new URLSearchParams(location.search).get('tab');
             const isActive =
-              currentPath === item.path ||
-              ('aliasPath' in item && item.aliasPath && currentPath === item.aliasPath) ||
-              (item.path === '/home' && currentPath === '/');
+              item.queryTab
+                ? currentPath === '/admin' && currentTab === item.queryTab
+                : (
+                    currentPath === item.path ||
+                    ('aliasPath' in item && item.aliasPath && currentPath === item.aliasPath) ||
+                    (item.path === '/home' && currentPath === '/') ||
+                    (item.path === '/admin' && currentPath === '/admin' && !currentTab)
+                  );
 
             return (
               <button

@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { api } from '../services/api';
 import { useFarm } from '../context/FarmContext';
@@ -36,6 +37,22 @@ import {
 } from 'lucide-react';
 import { SupportStatus, SupportTicket, AcademyCategory } from '../types';
 
+
+const getTicketStatusClasses = (status?: string): string => {
+  switch (status) {
+    case 'Diterima':
+      return 'bg-sky-50 text-sky-700 border border-sky-200';
+    case 'Diproses':
+      return 'bg-amber-50 text-amber-700 border border-amber-200';
+    case 'Solusi Diberikan':
+      return 'bg-emerald-50 text-emerald-700 border border-emerald-200';
+    case 'Selesai':
+      return 'bg-[#EAF2EC] text-[#1B3022] border border-[#CDE3D3]';
+    default:
+      return 'bg-stone-100 text-stone-600 border border-stone-200';
+  }
+};
+
 export const AdminPage: React.FC = () => {
   const {
     farms,
@@ -51,6 +68,7 @@ export const AdminPage: React.FC = () => {
     updateAcademyContent,
     deleteAcademyContent,
     togglePublishAcademy,
+    toggleRecommendAcademy,
     settings,
     updateSettings,
     resetToCleanDatabase,
@@ -58,10 +76,32 @@ export const AdminPage: React.FC = () => {
     showToast,
   } = useFarm();
 
-  const [activeTab, setActiveTab] = useState<'kandang' | 'alerts' | 'tickets' | 'academy' | 'pengaturan'>('kandang');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedTab = searchParams.get('tab');
+  const initialAdminTab =
+    requestedTab === 'alerts' ||
+    requestedTab === 'tickets' ||
+    requestedTab === 'academy' ||
+    requestedTab === 'pengaturan'
+      ? requestedTab
+      : 'kandang';
+
+  const [activeTab, setActiveTab] = useState<'kandang' | 'alerts' | 'tickets' | 'academy' | 'pengaturan'>(
+    initialAdminTab
+  );
+
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (tab === 'alerts' || tab === 'tickets' || tab === 'academy' || tab === 'pengaturan') {
+      setActiveTab(tab);
+    } else {
+      setActiveTab('kandang');
+    }
+  }, [searchParams]);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'warning' | 'critical' | 'unclaimed'>('all');
   const [selectedFarmModal, setSelectedFarmModal] = useState<any | null>(null);
+  const [selectedReportPhoto, setSelectedReportPhoto] = useState<any | null>(null);
 
   // Ticket chat modal state
   const [selectedTicket, setSelectedTicket] = useState<SupportTicket | null>(null);
@@ -74,18 +114,7 @@ export const AdminPage: React.FC = () => {
   const [newFarmOwner, setNewFarmOwner] = useState('');
   const [newFarmPhone, setNewFarmPhone] = useState('');
   const [newFarmLocation, setNewFarmLocation] = useState('');
-  const [newPurchaseDate, setNewPurchaseDate] = useState('');
-  const [newFullAddress, setNewFullAddress] = useState('');
-  const [newLatitude, setNewLatitude] = useState('');
-  const [newLongitude, setNewLongitude] = useState('');
   const [newFarmChickens, setNewFarmChickens] = useState(12);
-
-  // Edit farmer master data
-  const [isEditFarmerOpen, setIsEditFarmerOpen] = useState(false);
-  const [editPurchaseDate, setEditPurchaseDate] = useState('');
-  const [editFullAddress, setEditFullAddress] = useState('');
-  const [editLatitude, setEditLatitude] = useState('');
-  const [editLongitude, setEditLongitude] = useState('');
 
   // Excel import / export
   type ImportType = 'members' | 'farms' | 'chickens' | 'reports';
@@ -107,6 +136,10 @@ export const AdminPage: React.FC = () => {
   const [acadVideoUrl, setAcadVideoUrl] = useState('');
   const [acadDuration, setAcadDuration] = useState('3 menit');
   const [acadThumbnail, setAcadThumbnail] = useState('https://images.unsplash.com/photo-1548550023-2bdb3c5beed7?auto=format&fit=crop&w=600&q=80');
+  const [acadVideoFile, setAcadVideoFile] = useState<File | null>(null);
+  const [acadThumbnailFile, setAcadThumbnailFile] = useState<File | null>(null);
+  const [isUploadingAcademy, setIsUploadingAcademy] = useState(false);
+  const [acadPublishNow, setAcadPublishNow] = useState(true);
 
   // Settings local state
   const [localSettings, setLocalSettings] = useState(settings);
@@ -118,16 +151,6 @@ export const AdminPage: React.FC = () => {
     ownerName: String(farm.ownerName ?? farm.owner_name ?? ''),
     phone: String(farm.phone ?? ''),
     location: String(farm.location ?? ''),
-    purchaseDate: String(farm.purchaseDate ?? farm.purchase_date ?? ''),
-    fullAddress: String(farm.fullAddress ?? farm.full_address ?? ''),
-    latitude:
-      farm.latitude === null || farm.latitude === undefined || farm.latitude === ''
-        ? null
-        : Number(farm.latitude),
-    longitude:
-      farm.longitude === null || farm.longitude === undefined || farm.longitude === ''
-        ? null
-        : Number(farm.longitude),
     status: farm.status ?? 'unclaimed',
     activeChickens: Number(farm.activeChickens ?? farm.active_chickens ?? 0),
     currentAgeWeeks: Number(farm.currentAgeWeeks ?? farm.current_age_weeks ?? 0),
@@ -171,62 +194,6 @@ export const AdminPage: React.FC = () => {
     showToast(`📱 Menghubungi ${name} (${phone}) via WhatsApp...`);
   };
 
-  const captureGps = (
-    setLat: React.Dispatch<React.SetStateAction<string>>,
-    setLng: React.Dispatch<React.SetStateAction<string>>
-  ) => {
-    if (!navigator.geolocation) {
-      showToast('Browser ini tidak mendukung pengambilan GPS.');
-      return;
-    }
-
-    showToast('Mengambil titik GPS...');
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setLat(position.coords.latitude.toFixed(7));
-        setLng(position.coords.longitude.toFixed(7));
-        showToast('✅ Titik GPS berhasil diambil.');
-      },
-      (error) => {
-        showToast(`⚠️ GPS gagal diambil: ${error.message}`);
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-    );
-  };
-
-  const openEditFarmer = (farm: any) => {
-    setSelectedFarmModal(farm);
-    setEditPurchaseDate(String(farm.purchaseDate ?? farm.purchase_date ?? ''));
-    setEditFullAddress(String(farm.fullAddress ?? farm.full_address ?? ''));
-    setEditLatitude(
-      farm.latitude === null || farm.latitude === undefined ? '' : String(farm.latitude)
-    );
-    setEditLongitude(
-      farm.longitude === null || farm.longitude === undefined ? '' : String(farm.longitude)
-    );
-    setIsEditFarmerOpen(true);
-  };
-
-  const handleSaveFarmerData = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedFarmModal?.id) return;
-
-    try {
-      const res = await api.updateFarm(selectedFarmModal.id, {
-        purchaseDate: editPurchaseDate || undefined,
-        fullAddress: editFullAddress.trim() || undefined,
-        latitude: editLatitude.trim() === '' ? null : Number(editLatitude),
-        longitude: editLongitude.trim() === '' ? null : Number(editLongitude),
-      } as any);
-
-      showToast(res.message || 'Data peternak berhasil diperbarui.');
-      setIsEditFarmerOpen(false);
-      window.setTimeout(() => window.location.reload(), 400);
-    } catch (err: any) {
-      showToast(err?.message || 'Gagal memperbarui data peternak.');
-    }
-  };
-
   const handleCreateFarm = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -235,10 +202,6 @@ export const AdminPage: React.FC = () => {
         ownerName: newFarmOwner.trim(),
         phone: newFarmPhone.trim(),
         location: newFarmLocation.trim() || 'Paket Belum Diaktivasi (Tersedia)',
-        purchaseDate: newPurchaseDate || undefined,
-        fullAddress: newFullAddress.trim() || undefined,
-        latitude: newLatitude.trim() === '' ? null : Number(newLatitude),
-        longitude: newLongitude.trim() === '' ? null : Number(newLongitude),
         initialChickens: newFarmChickens,
         chickenBreed: 'Layer Lohmann Brown Petelur Unggul',
         initialAgeWeeks: 18,
@@ -250,10 +213,6 @@ export const AdminPage: React.FC = () => {
       setNewFarmOwner('');
       setNewFarmPhone('');
       setNewFarmLocation('');
-      setNewPurchaseDate('');
-      setNewFullAddress('');
-      setNewLatitude('');
-      setNewLongitude('');
       window.setTimeout(() => window.location.reload(), 500);
     } catch (err: any) {
       showToast(err?.message || 'Gagal membuat Farm ID');
@@ -329,27 +288,63 @@ Ketik HAPUS untuk melanjutkan.`
     }
   };
 
-  const handleSaveAcademy = (e: React.FormEvent) => {
+  const handleSaveAcademy = async (e: React.FormEvent) => {
     e.preventDefault();
+
     if (!acadTitle.trim() || !acadContent.trim()) {
-      showToast('Judul dan konten wajib diisi');
+      showToast('Judul dan isi panduan wajib diisi');
       return;
     }
-    createAcademyContent({
-      title: acadTitle,
-      category: acadCategory,
-      description: acadDesc,
-      content: acadContent,
-      type: acadType,
-      videoUrl: acadType === 'video' ? acadVideoUrl : undefined,
-      duration: acadDuration,
-      thumbnail: acadThumbnail,
-      published: true,
-    });
+
+    if (acadType === 'video' && !acadVideoFile && !acadVideoUrl.trim()) {
+      showToast('Pilih file video atau isi URL video terlebih dahulu');
+      return;
+    }
+
+    // Begitu user klik Publish/Simpan, modal langsung ditutup.
+    // Hasil upload/save akan tetap diproses di background dan ditampilkan lewat toast.
     setIsAddAcademyOpen(false);
-    setAcadTitle('');
-    setAcadDesc('');
-    setAcadContent('');
+    setIsUploadingAcademy(true);
+
+    try {
+      let finalVideoUrl = acadVideoUrl.trim();
+      let finalThumbnail = acadThumbnail.trim();
+
+      if (acadVideoFile) {
+        const uploadedVideo = await api.uploadAcademyMedia(acadVideoFile, 'video');
+        finalVideoUrl = uploadedVideo.url;
+      }
+
+      if (acadThumbnailFile) {
+        const uploadedThumbnail = await api.uploadAcademyMedia(acadThumbnailFile, 'thumbnail');
+        finalThumbnail = uploadedThumbnail.url;
+      }
+
+      await createAcademyContent({
+        title: acadTitle.trim(),
+        category: acadCategory,
+        description: acadDesc.trim(),
+        content: acadContent.trim(),
+        type: acadType,
+        videoUrl: acadType === 'video' ? finalVideoUrl : undefined,
+        duration: acadDuration.trim() || '2 menit',
+        thumbnail: finalThumbnail,
+        published: acadPublishNow,
+      });
+    } catch (err: any) {
+      showToast(err?.message || 'Gagal menyimpan materi Academy');
+    } finally {
+      setAcadTitle('');
+      setAcadDesc('');
+      setAcadContent('');
+      setAcadType('article');
+      setAcadVideoUrl('');
+      setAcadVideoFile(null);
+      setAcadThumbnailFile(null);
+      setAcadDuration('3 menit');
+      setAcadPublishNow(true);
+      setIsUploadingAcademy(false);
+    }
   };
 
   const handleSendTicketReply = () => {
@@ -471,7 +466,15 @@ Ketik HAPUS untuk melanjutkan.`
           return (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
+              onClick={() => {
+                const nextTab = tab.id as 'kandang' | 'alerts' | 'tickets' | 'academy' | 'pengaturan';
+                setActiveTab(nextTab);
+                if (nextTab === 'kandang') {
+                  setSearchParams({});
+                } else {
+                  setSearchParams({ tab: nextTab });
+                }
+              }}
               className={`px-3 sm:px-4 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl font-bold text-xs sm:text-sm flex items-center gap-1.5 sm:gap-2 transition-all whitespace-nowrap cursor-pointer shrink-0 ${
                 isActive
                   ? 'bg-[#1B3022] text-[#FDFBF7] shadow-sm'
@@ -914,15 +917,38 @@ Ketik HAPUS untuk melanjutkan.`
                       {a.published ? 'Published' : 'Draft'}
                     </span>
                   </div>
+                  {a.thumbnail && (
+                    <div className="aspect-video rounded-xl overflow-hidden bg-stone-100 mb-3 border border-[#EFECE6]">
+                      <img src={a.thumbnail} alt={a.title} className="w-full h-full object-cover" />
+                    </div>
+                  )}
                   <h4 className="font-bold text-sm text-[#1B3022] font-['Outfit']">{a.title}</h4>
                   <p className="text-xs text-stone-600 mt-1 line-clamp-2">{a.description}</p>
+                  {a.type === 'video' && a.videoUrl && (
+                    <div className="mt-2 text-[10px] font-bold text-[#2D4A36] bg-[#EAF2EC] px-2 py-1 rounded-lg inline-block">
+                      🎬 Video siap diputar
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex items-center justify-between pt-2 border-t border-[#EFECE6] text-xs">
                   <span className="text-stone-400 font-mono text-[10px]">{a.type.toUpperCase()}</span>
                   <div className="flex items-center gap-1.5">
                     <button
-                      onClick={() => deleteAcademyContent(a.id)}
+                      onClick={() => toggleRecommendAcademy(a.id)}
+                      className={`px-2 py-1 rounded-lg text-[10px] font-bold cursor-pointer ${
+                        a.isRecommended
+                          ? 'bg-[#D4AF37] text-[#1B3022]'
+                          : 'bg-white text-stone-600 border border-[#EFECE6]'
+                      }`}
+                      title="Jadikan rekomendasi utama"
+                    >
+                      {a.isRecommended ? '★ Rekomendasi' : '☆ Rekomendasikan'}
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (window.confirm(`Hapus materi "${a.title}"?`)) deleteAcademyContent(a.id);
+                      }}
                       className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
                       title="Hapus materi"
                     >
@@ -1191,41 +1217,6 @@ Ketik HAPUS untuk melanjutkan.`
                         {selectedFarmModal.location || '-'}
                       </strong>
 
-                      <span className="text-stone-500">Tanggal Beli</span>
-                      <strong className="text-stone-800">
-                        {selectedFarmModal.purchaseDate ??
-                          selectedFarmModal.purchase_date ??
-                          '-'}
-                      </strong>
-
-                      <span className="text-stone-500">Alamat Lengkap</span>
-                      <strong className="text-stone-800 whitespace-pre-line">
-                        {selectedFarmModal.fullAddress ??
-                          selectedFarmModal.full_address ??
-                          '-'}
-                      </strong>
-
-                      <span className="text-stone-500">Titik GPS</span>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <strong className="font-mono text-stone-800">
-                          {selectedFarmModal.latitude != null &&
-                          selectedFarmModal.longitude != null
-                            ? `${selectedFarmModal.latitude}, ${selectedFarmModal.longitude}`
-                            : '-'}
-                        </strong>
-                        {selectedFarmModal.latitude != null &&
-                          selectedFarmModal.longitude != null && (
-                            <a
-                              href={`https://www.google.com/maps?q=${selectedFarmModal.latitude},${selectedFarmModal.longitude}`}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-[#2D4A36] font-bold underline"
-                            >
-                              Buka Maps
-                            </a>
-                          )}
-                      </div>
-
                       <span className="text-stone-500">Farm ID</span>
                       <strong className="font-mono text-[#1B3022]">
                         {selectedFarmModal.farmCode || '-'}
@@ -1247,14 +1238,6 @@ Ketik HAPUS untuk melanjutkan.`
                         Hubungi Member
                       </button>
                     )}
-
-                    <button
-                      type="button"
-                      onClick={() => openEditFarmer(selectedFarmModal)}
-                      className="w-full px-4 py-2.5 bg-[#1B3022] hover:bg-[#2D4A36] text-white font-bold text-xs rounded-xl cursor-pointer"
-                    >
-                      Edit Data Peternak
-                    </button>
                   </div>
 
                   <div className="bg-white rounded-2xl border border-[#EFECE6] p-5 space-y-3">
@@ -1332,6 +1315,7 @@ Ketik HAPUS untuk melanjutkan.`
                             <th className="px-4 py-3">Pakan</th>
                             <th className="px-4 py-3">Produktivitas</th>
                             <th className="px-4 py-3">Kondisi</th>
+                            <th className="px-4 py-3">Foto</th>
                             <th className="px-4 py-3">Catatan</th>
                           </tr>
                         </thead>
@@ -1355,6 +1339,27 @@ Ketik HAPUS untuk melanjutkan.`
                                 {report.chickenCondition === 'healthy'
                                   ? '🟢 Sehat'
                                   : '🟡 Perlu Pantauan'}
+                              </td>
+                              <td className="px-4 py-3">
+                                {report.photoUrl || report.photo_url ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedReportPhoto(report)}
+                                    className="group relative w-14 h-14 rounded-xl overflow-hidden border-2 border-[#E5E1D8] hover:border-[#2D4A36] shadow-sm cursor-pointer bg-[#F7F4EE]"
+                                    title="Lihat foto laporan"
+                                  >
+                                    <img
+                                      src={report.photoUrl || report.photo_url}
+                                      alt={`Foto laporan ${report.date}`}
+                                      className="w-full h-full object-cover transition-transform group-hover:scale-105"
+                                    />
+                                    <span className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+                                      <Eye className="w-4 h-4 text-white opacity-0 group-hover:opacity-100" />
+                                    </span>
+                                  </button>
+                                ) : (
+                                  <span className="text-stone-400">—</span>
+                                )}
                               </td>
                               <td className="px-4 py-3 text-stone-500">
                                 {report.notes || '-'}
@@ -1382,110 +1387,70 @@ Ketik HAPUS untuk melanjutkan.`
         );
       })()}
 
-
-      {/* MODAL: EDIT DATA PETERNAK */}
-      {isEditFarmerOpen && selectedFarmModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-white rounded-3xl shadow-2xl border border-[#EFECE6] w-full max-w-lg p-6 space-y-4">
-            <div className="flex items-center justify-between border-b border-[#EFECE6] pb-3">
+      {selectedReportPhoto && (selectedReportPhoto.photoUrl || selectedReportPhoto.photo_url) && (
+        <div
+          className="fixed inset-0 z-[120] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setSelectedReportPhoto(null)}
+        >
+          <div
+            className="bg-white rounded-3xl overflow-hidden shadow-2xl w-full max-w-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-4 bg-[#1B3022] text-white flex items-center justify-between gap-3">
               <div>
-                <h3 className="text-lg font-bold text-[#1B3022] font-['Outfit']">
-                  Edit Data Peternak
-                </h3>
-                <p className="text-xs text-stone-500 mt-0.5">
-                  Farm ID: {selectedFarmModal.farmCode}
+                <p className="text-[10px] uppercase tracking-wider text-[#D4AF37] font-black">
+                  Bukti Foto Laporan Member
                 </p>
+                <h3 className="font-black font-['Outfit']">
+                  {selectedReportPhoto.date || selectedReportPhoto.report_date || '-'}
+                </h3>
               </div>
               <button
                 type="button"
-                onClick={() => setIsEditFarmerOpen(false)}
-                className="text-stone-400 hover:text-stone-700"
+                onClick={() => setSelectedReportPhoto(null)}
+                className="w-9 h-9 rounded-xl bg-white/10 hover:bg-white/20 font-black cursor-pointer"
+                aria-label="Tutup foto laporan"
               >
                 ✕
               </button>
             </div>
 
-            <form onSubmit={handleSaveFarmerData} className="space-y-3.5 text-xs">
-              <div>
-                <label className="block font-bold text-stone-700 mb-1">Tanggal Beli</label>
-                <input
-                  type="date"
-                  value={editPurchaseDate}
-                  onChange={(e) => setEditPurchaseDate(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-[#FAF7F2] border border-[#EFECE6] rounded-xl text-sm font-semibold"
-                />
+            <div className="bg-black">
+              <img
+                src={selectedReportPhoto.photoUrl || selectedReportPhoto.photo_url}
+                alt="Foto laporan member"
+                className="w-full max-h-[65vh] object-contain"
+              />
+            </div>
+
+            <div className="p-5 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+              <div className="bg-[#F7F4EE] rounded-xl p-3">
+                <span className="text-stone-500">Farm ID</span>
+                <p className="font-black text-[#1B3022] mt-1">
+                  {selectedFarmModal?.farmCode || selectedFarmModal?.farm_code || '-'}
+                </p>
               </div>
-
-              <div>
-                <label className="block font-bold text-stone-700 mb-1">Alamat Lengkap</label>
-                <textarea
-                  rows={4}
-                  value={editFullAddress}
-                  onChange={(e) => setEditFullAddress(e.target.value)}
-                  placeholder="Nama jalan/dusun, RT/RW, desa/kelurahan, kecamatan, kabupaten/kota, provinsi, kode pos"
-                  className="w-full px-3.5 py-2.5 bg-[#FAF7F2] border border-[#EFECE6] rounded-xl text-sm font-semibold"
-                />
+              <div className="bg-[#F7F4EE] rounded-xl p-3">
+                <span className="text-stone-500">Telur</span>
+                <p className="font-black text-[#1B3022] mt-1">
+                  {selectedReportPhoto.eggCount ?? selectedReportPhoto.egg_count ?? 0} butir
+                </p>
               </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <label className="block font-bold text-stone-700">Titik GPS Kandang</label>
-                  <button
-                    type="button"
-                    onClick={() => captureGps(setEditLatitude, setEditLongitude)}
-                    className="px-3 py-1.5 rounded-lg bg-[#EAF2EC] border border-[#CDE3D3] text-[#1B3022] text-[11px] font-bold"
-                  >
-                    📍 Ambil GPS Sekarang
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <input
-                    type="number"
-                    step="any"
-                    value={editLatitude}
-                    onChange={(e) => setEditLatitude(e.target.value)}
-                    placeholder="Latitude"
-                    className="w-full px-3 py-2.5 bg-[#FAF7F2] border border-[#EFECE6] rounded-xl text-xs font-mono"
-                  />
-                  <input
-                    type="number"
-                    step="any"
-                    value={editLongitude}
-                    onChange={(e) => setEditLongitude(e.target.value)}
-                    placeholder="Longitude"
-                    className="w-full px-3 py-2.5 bg-[#FAF7F2] border border-[#EFECE6] rounded-xl text-xs font-mono"
-                  />
-                </div>
-
-                {editLatitude && editLongitude && (
-                  <a
-                    href={`https://www.google.com/maps?q=${editLatitude},${editLongitude}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-block text-[#2D4A36] font-bold underline"
-                  >
-                    Cek titik di Google Maps
-                  </a>
-                )}
+              <div className="bg-[#F7F4EE] rounded-xl p-3">
+                <span className="text-stone-500">Pakan</span>
+                <p className="font-black text-[#1B3022] mt-1">
+                  {selectedReportPhoto.feedKg ?? selectedReportPhoto.feed_kg ?? 0} kg
+                </p>
               </div>
-
-              <div className="flex gap-2 justify-end pt-3">
-                <button
-                  type="button"
-                  onClick={() => setIsEditFarmerOpen(false)}
-                  className="px-4 py-2 text-stone-600 hover:bg-stone-100 rounded-xl font-bold"
-                >
-                  Batal
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2.5 bg-[#1B3022] hover:bg-[#2D4A36] text-white font-bold rounded-xl shadow-xs"
-                >
-                  Simpan Data Peternak
-                </button>
+              <div className="bg-[#F7F4EE] rounded-xl p-3">
+                <span className="text-stone-500">Kondisi</span>
+                <p className="font-black text-[#1B3022] mt-1">
+                  {(selectedReportPhoto.chickenCondition ?? selectedReportPhoto.chicken_condition) === 'healthy'
+                    ? '🟢 Sehat'
+                    : '🟡 Perlu Pantauan'}
+                </p>
               </div>
-            </form>
+            </div>
           </div>
         </div>
       )}
@@ -1552,61 +1517,6 @@ Ketik HAPUS untuk melanjutkan.`
                   placeholder="Contoh: Depok, Jawa Barat"
                   className="w-full px-3.5 py-2.5 bg-[#FAF7F2] border border-[#EFECE6] rounded-xl text-sm font-semibold text-[#1B3022]"
                 />
-              </div>
-
-              <div>
-                <label className="block font-bold text-stone-700 mb-1">Tanggal Beli</label>
-                <input
-                  type="date"
-                  value={newPurchaseDate}
-                  onChange={(e) => setNewPurchaseDate(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-[#FAF7F2] border border-[#EFECE6] rounded-xl text-sm font-semibold text-[#1B3022]"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-stone-700 mb-1">Alamat Lengkap</label>
-                <textarea
-                  rows={3}
-                  value={newFullAddress}
-                  onChange={(e) => setNewFullAddress(e.target.value)}
-                  placeholder="Nama jalan/dusun, RT/RW, desa/kelurahan, kecamatan, kabupaten/kota, provinsi, kode pos"
-                  className="w-full px-3.5 py-2.5 bg-[#FAF7F2] border border-[#EFECE6] rounded-xl text-sm font-semibold text-[#1B3022]"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <label className="block font-bold text-stone-700">Titik GPS Kandang</label>
-                  <button
-                    type="button"
-                    onClick={() => captureGps(setNewLatitude, setNewLongitude)}
-                    className="px-3 py-1.5 rounded-lg bg-[#EAF2EC] border border-[#CDE3D3] text-[#1B3022] text-[11px] font-bold"
-                  >
-                    📍 Ambil Lokasi Saya
-                  </button>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <input
-                    type="number"
-                    step="any"
-                    value={newLatitude}
-                    onChange={(e) => setNewLatitude(e.target.value)}
-                    placeholder="Latitude"
-                    className="w-full px-3 py-2.5 bg-[#FAF7F2] border border-[#EFECE6] rounded-xl text-xs font-mono"
-                  />
-                  <input
-                    type="number"
-                    step="any"
-                    value={newLongitude}
-                    onChange={(e) => setNewLongitude(e.target.value)}
-                    placeholder="Longitude"
-                    className="w-full px-3 py-2.5 bg-[#FAF7F2] border border-[#EFECE6] rounded-xl text-xs font-mono"
-                  />
-                </div>
-                <p className="text-[10px] text-stone-500">
-                  GPS dapat diambil otomatis dari HP/laptop jika izin lokasi diberikan.
-                </p>
               </div>
               <div>
                 <label className="block font-bold text-stone-700 mb-1">Kapasitas Ayam</label>
@@ -1744,6 +1654,11 @@ Ketik HAPUS untuk melanjutkan.`
                 <span className="text-xs text-stone-500 font-medium">
                   {selectedTicket.ownerName} ({selectedTicket.farmCode})
                 </span>
+                <div className="mt-2">
+                  <span className={`inline-flex text-[11px] font-bold px-2.5 py-1 rounded-full ${getTicketStatusClasses(selectedTicket.status)}`}>
+                    {selectedTicket.status}
+                  </span>
+                </div>
               </div>
               <button
                 onClick={() => setSelectedTicket(null)}
@@ -1752,6 +1667,17 @@ Ketik HAPUS untuk melanjutkan.`
                 ✕
               </button>
             </div>
+
+            {((selectedTicket as any).photoUrl || (selectedTicket as any).photo_url) && (
+              <div className="rounded-2xl border border-[#EFECE6] bg-[#FAF7F2] p-3">
+                <div className="text-[10px] font-bold text-stone-500 mb-2">FOTO KONDISI DARI MEMBER</div>
+                <img
+                  src={(selectedTicket as any).photoUrl || (selectedTicket as any).photo_url}
+                  alt="Foto kondisi member"
+                  className="w-full max-h-72 object-contain rounded-xl bg-black/5"
+                />
+              </div>
+            )}
 
             {/* Chat Thread */}
             <div className="max-h-72 overflow-y-auto space-y-3 p-3 bg-[#FAF7F2] rounded-2xl border border-[#EFECE6]">
@@ -1770,9 +1696,9 @@ Ketik HAPUS untuk melanjutkan.`
                       <span>{msg.createdAt}</span>
                     </div>
                     <p className="leading-relaxed">{msg.message}</p>
-                    {msg.attachmentUrl && (
+                    {(msg.attachmentUrl || (msg as any).attachment_url) && (
                       <img
-                        src={msg.attachmentUrl}
+                        src={msg.attachmentUrl || (msg as any).attachment_url}
                         alt="Attachment"
                         className="mt-2 rounded-xl max-h-36 object-cover"
                       />
@@ -1781,6 +1707,12 @@ Ketik HAPUS untuk melanjutkan.`
                 ))
               ) : (
                 <p className="text-xs text-stone-500 p-3">{selectedTicket.description}</p>
+              )}
+              {selectedTicket.status === 'Selesai' && (
+                <div className="mx-auto max-w-[92%] text-center p-3.5 rounded-2xl bg-[#EAF2EC] border border-[#CDE3D3] text-[#1B3022]">
+                  <div className="text-xs font-black">✓ Konsultasi Selesai</div>
+                  <div className="text-[11px] mt-1 text-[#2D4A36]">Tiket telah ditutup. Riwayat percakapan tetap tersimpan dan dapat dilihat kembali oleh member.</div>
+                </div>
               )}
             </div>
 
@@ -1795,8 +1727,8 @@ Ketik HAPUS untuk melanjutkan.`
                       onClick={() => updateTicketStatus(selectedTicket.id, st)}
                       className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
                         selectedTicket.status === st
-                          ? 'bg-[#1B3022] text-[#FDFBF7]'
-                          : 'bg-[#FAF7F2] border border-[#EFECE6] text-stone-600 hover:bg-stone-100'
+                          ? getTicketStatusClasses(st)
+                          : 'bg-[#FAF7F2] border border-[#EFECE6] text-stone-500 hover:bg-stone-100'
                       }`}
                     >
                       {st}
@@ -1830,21 +1762,28 @@ Ketik HAPUS untuk melanjutkan.`
       {/* MODAL: ADD ACADEMY */}
       {isAddAcademyOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white rounded-3xl shadow-2xl border border-[#EFECE6] w-full max-w-lg p-6 space-y-4">
+          <div className="bg-white rounded-3xl shadow-2xl border border-[#EFECE6] w-full max-w-2xl max-h-[92vh] overflow-y-auto p-6 space-y-4">
             <div className="flex items-center justify-between border-b border-[#EFECE6] pb-3">
-              <h3 className="text-lg font-bold text-[#1B3022] font-['Outfit']">
-                Tambah Materi Academy Baru
-              </h3>
+              <div>
+                <h3 className="text-lg font-bold text-[#1B3022] font-['Outfit']">
+                  Tambah Materi Academy Baru
+                </h3>
+                <p className="text-[11px] text-stone-500 mt-0.5">
+                  Upload video langsung atau gunakan link YouTube/video eksternal.
+                </p>
+              </div>
               <button
-                onClick={() => setIsAddAcademyOpen(false)}
+                type="button"
+                onClick={() => !isUploadingAcademy && setIsAddAcademyOpen(false)}
                 className="text-stone-400 hover:text-stone-700"
               >
                 ✕
               </button>
             </div>
-            <form onSubmit={handleSaveAcademy} className="space-y-3 text-xs">
+
+            <form onSubmit={handleSaveAcademy} className="space-y-4 text-xs">
               <div>
-                <label className="block font-bold text-stone-700 mb-1">Judul Materi</label>
+                <label className="block font-bold text-stone-700 mb-1">Judul Materi *</label>
                 <input
                   type="text"
                   required
@@ -1855,12 +1794,12 @@ Ketik HAPUS untuk melanjutkan.`
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-bold text-stone-700 mb-1">Kategori</label>
+                  <label className="block font-bold text-stone-700 mb-1">Kategori *</label>
                   <select
                     value={acadCategory}
-                    onChange={(e) => setAcadCategory(e.target.value as any)}
+                    onChange={(e) => setAcadCategory(e.target.value as AcademyCategory)}
                     className="w-full px-3 py-2.5 bg-[#FAF7F2] border border-[#EFECE6] rounded-xl text-xs font-semibold"
                   >
                     <option value="Produksi Telur">Produksi Telur</option>
@@ -1871,16 +1810,85 @@ Ketik HAPUS untuk melanjutkan.`
                     <option value="Permasalahan Umum">Permasalahan Umum</option>
                   </select>
                 </div>
+
                 <div>
-                  <label className="block font-bold text-stone-700 mb-1">Tipe Media</label>
+                  <label className="block font-bold text-stone-700 mb-1">Tipe Materi *</label>
                   <select
                     value={acadType}
-                    onChange={(e) => setAcadType(e.target.value as any)}
+                    onChange={(e) => setAcadType(e.target.value as 'video' | 'article')}
                     className="w-full px-3 py-2.5 bg-[#FAF7F2] border border-[#EFECE6] rounded-xl text-xs font-semibold"
                   >
-                    <option value="article">Artikel Bacaan</option>
-                    <option value="video">Video Praktis</option>
+                    <option value="video">🎬 Video Praktis</option>
+                    <option value="article">📖 Artikel Bacaan</option>
                   </select>
+                </div>
+              </div>
+
+              {acadType === 'video' && (
+                <div className="p-4 rounded-2xl bg-[#EAF2EC] border border-[#CDE3D3] space-y-3">
+                  <div>
+                    <label className="block font-bold text-[#1B3022] mb-1">Upload Video</label>
+                    <input
+                      type="file"
+                      accept="video/mp4,video/webm,video/quicktime"
+                      onChange={(e) => setAcadVideoFile(e.target.files?.[0] || null)}
+                      className="block w-full text-xs file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:bg-[#1B3022] file:text-white file:font-bold"
+                    />
+                    <p className="text-[10px] text-stone-500 mt-1">MP4, WEBM, atau MOV. Maksimal 100 MB.</p>
+                    {acadVideoFile && (
+                      <p className="text-[11px] font-bold text-[#2D4A36] mt-1">
+                        ✓ {acadVideoFile.name} ({(acadVideoFile.size / 1024 / 1024).toFixed(1)} MB)
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2 text-stone-400">
+                    <div className="h-px bg-[#CDE3D3] flex-1" />
+                    <span className="text-[10px] font-bold">ATAU</span>
+                    <div className="h-px bg-[#CDE3D3] flex-1" />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-[#1B3022] mb-1">URL Video / YouTube</label>
+                    <input
+                      type="url"
+                      value={acadVideoUrl}
+                      onChange={(e) => setAcadVideoUrl(e.target.value)}
+                      placeholder="https://youtube.com/watch?v=... atau URL video"
+                      className="w-full px-3.5 py-2.5 bg-white border border-[#CDE3D3] rounded-xl text-xs"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-[#1B3022] mb-1">Durasi</label>
+                    <input
+                      type="text"
+                      value={acadDuration}
+                      onChange={(e) => setAcadDuration(e.target.value)}
+                      placeholder="Contoh: 2 menit"
+                      className="w-full px-3.5 py-2.5 bg-white border border-[#CDE3D3] rounded-xl text-xs"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label className="block font-bold text-stone-700 mb-1">Thumbnail / Cover</label>
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={(e) => setAcadThumbnailFile(e.target.files?.[0] || null)}
+                  className="block w-full text-xs file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:bg-[#D4AF37] file:text-[#1B3022] file:font-bold"
+                />
+                <p className="text-[10px] text-stone-500 mt-1">JPG, PNG, WEBP. Maksimal 5 MB.</p>
+                <div className="mt-2">
+                  <label className="block font-semibold text-stone-500 mb-1">atau URL thumbnail</label>
+                  <input
+                    type="url"
+                    value={acadThumbnail}
+                    onChange={(e) => setAcadThumbnail(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-[#FAF7F2] border border-[#EFECE6] rounded-xl text-xs"
+                  />
                 </div>
               </div>
 
@@ -1890,36 +1898,55 @@ Ketik HAPUS untuk melanjutkan.`
                   type="text"
                   value={acadDesc}
                   onChange={(e) => setAcadDesc(e.target.value)}
-                  placeholder="Penjelasan ringkas 1-2 kalimat"
+                  placeholder="Penjelasan ringkas 1–2 kalimat"
                   className="w-full px-3.5 py-2.5 bg-[#FAF7F2] border border-[#EFECE6] rounded-xl text-xs"
                 />
               </div>
 
               <div>
-                <label className="block font-bold text-stone-700 mb-1">Isi Panduan Lengkap</label>
+                <label className="block font-bold text-stone-700 mb-1">Isi Panduan Lengkap *</label>
                 <textarea
-                  rows={4}
+                  rows={5}
                   required
                   value={acadContent}
                   onChange={(e) => setAcadContent(e.target.value)}
-                  placeholder="Ketik langkah-langkah praktis dan panduan..."
+                  placeholder="Tuliskan poin penting, langkah praktis, atau ringkasan video..."
                   className="w-full px-3.5 py-2.5 bg-[#FAF7F2] border border-[#EFECE6] rounded-xl text-xs"
                 />
               </div>
 
+              <label className="flex items-center gap-3 p-3 rounded-xl bg-[#FAF7F2] border border-[#EFECE6] cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={acadPublishNow}
+                  onChange={(e) => setAcadPublishNow(e.target.checked)}
+                  className="w-4 h-4 accent-[#2D4A36]"
+                />
+                <div>
+                  <div className="font-bold text-[#1B3022]">Langsung tampil ke member</div>
+                  <div className="text-[10px] text-stone-500">Matikan untuk menyimpan sebagai Draft.</div>
+                </div>
+              </label>
+
               <div className="flex gap-2 justify-end pt-2">
                 <button
                   type="button"
+                  disabled={isUploadingAcademy}
                   onClick={() => setIsAddAcademyOpen(false)}
-                  className="px-4 py-2 text-stone-600 hover:bg-stone-100 rounded-xl font-bold"
+                  className="px-4 py-2 text-stone-600 hover:bg-stone-100 rounded-xl font-bold disabled:opacity-50"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 bg-[#1B3022] hover:bg-[#2D4A36] text-white font-bold rounded-xl shadow-xs"
+                  disabled={isUploadingAcademy}
+                  className="px-5 py-2.5 bg-[#1B3022] hover:bg-[#2D4A36] text-white font-bold rounded-xl shadow-xs disabled:opacity-60"
                 >
-                  Publish Materi
+                  {isUploadingAcademy
+                    ? 'Mengupload & Menyimpan...'
+                    : acadPublishNow
+                      ? 'Publish Materi'
+                      : 'Simpan Draft'}
                 </button>
               </div>
             </form>

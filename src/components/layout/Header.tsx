@@ -29,6 +29,7 @@ export const Header: React.FC<HeaderProps> = ({
     logout,
     notifications,
     markNotificationRead,
+    markAllNotificationsRead,
     setActivePage,
     setIsQuickReportOpen,
     textScale,
@@ -66,6 +67,19 @@ export const Header: React.FC<HeaderProps> = ({
   const handleLogout = () => {
     logout();
     navigate('/auth');
+  };
+
+  const handleNotificationClick = async (notif: any) => {
+    await markNotificationRead(notif.id);
+    setIsNotifOpen(false);
+    if (notif.link) navigate(notif.link);
+  };
+
+  const formatNotifDate = (value: string) => {
+    if (!value) return '';
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return value;
+    return new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(d);
   };
 
   return (
@@ -163,19 +177,21 @@ export const Header: React.FC<HeaderProps> = ({
             <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-2xl shadow-xl border border-[#EFECE6] p-4 z-50 animate-in fade-in zoom-in-95">
               <div className="flex items-center justify-between pb-3 border-b border-[#EFECE6]">
                 <div className="flex items-center gap-2">
-                  <h4 className="font-bold text-[#1B3022] text-sm">Notifikasi & Peringatan</h4>
+                  <h4 className="font-bold text-[#1B3022] text-sm">Notifikasi Eggnest</h4>
                   {unreadCount > 0 && (
                     <span className="bg-[#FDF2F2] text-[#BC4749] text-xs font-bold px-2 py-0.5 rounded-full border border-[#FECACA]">
                       {unreadCount} baru
                     </span>
                   )}
                 </div>
-                <button
-                  onClick={() => setIsNotifOpen(false)}
-                  className="text-xs text-stone-400 hover:text-stone-700"
-                >
-                  Tutup
-                </button>
+                <div className="flex items-center gap-2">
+                  {unreadCount > 0 && (
+                    <button onClick={() => markAllNotificationsRead()} className="text-[11px] font-bold text-[#2D4A36] hover:underline">
+                      Tandai semua dibaca
+                    </button>
+                  )}
+                  <button onClick={() => setIsNotifOpen(false)} className="text-xs text-stone-400 hover:text-stone-700">Tutup</button>
+                </div>
               </div>
 
               <div className="mt-3 space-y-2.5 max-h-80 overflow-y-auto">
@@ -187,7 +203,7 @@ export const Header: React.FC<HeaderProps> = ({
                   notifications.map((notif) => (
                     <div
                       key={notif.id}
-                      onClick={() => markNotificationRead(notif.id)}
+                      onClick={() => handleNotificationClick(notif)}
                       className={`p-3 rounded-xl border text-left transition-colors cursor-pointer ${
                         notif.read
                           ? 'bg-[#FAF7F2] border-[#EFECE6] opacity-75'
@@ -213,8 +229,9 @@ export const Header: React.FC<HeaderProps> = ({
                           <p className="text-xs text-stone-600 mt-0.5 leading-snug">
                             {notif.message}
                           </p>
+                          {(notif as any).link && <span className="text-[10px] font-bold text-[#2D4A36] mt-1 block">Klik untuk membuka →</span>}
                           <span className="text-[10px] text-stone-400 mt-1 block">
-                            {notif.date}
+                            {formatNotifDate(notif.date)}
                           </span>
                         </div>
                       </div>

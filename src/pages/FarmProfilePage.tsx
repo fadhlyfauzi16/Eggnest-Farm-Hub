@@ -25,6 +25,15 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 
+const CHICKEN_TYPE_OPTIONS = [
+  'Ayam Petelur Cokelat',
+  'Ayam Petelur Putih',
+  'Ayam Kampung Petelur',
+  'Ayam Arab Petelur',
+  'Ayam Joper',
+  'Ayam Petelur Lainnya',
+] as const;
+
 const hasCompleteFarmData = (farm: any): boolean => {
   const location = String(farm?.location ?? '').trim();
   const locationKey = location.toLowerCase();
@@ -43,6 +52,7 @@ export const FarmProfilePage: React.FC = () => {
   const {
     farm,
     farmScore,
+    reports,
     chickenCurrentAgeWeeks,
     setActivePage,
     showToast,
@@ -63,6 +73,7 @@ export const FarmProfilePage: React.FC = () => {
   const [currentAgeWeeks, setCurrentAgeWeeks] = useState(0);
 
   const dataComplete = hasCompleteFarmData(farm);
+  const farmScoreReady = reports.length >= 7;
 
   const syncForm = () => {
     const rawLocation = String(farm.location ?? '').trim();
@@ -74,7 +85,7 @@ export const FarmProfilePage: React.FC = () => {
     setFullAddress(String(farm.fullAddress ?? ''));
     setLatitude(farm.latitude == null || farm.latitude === '' ? null : Number(farm.latitude));
     setLongitude(farm.longitude == null || farm.longitude === '' ? null : Number(farm.longitude));
-    setChickenBreed(String(farm.chickenBreed ?? ''));
+    setChickenBreed(String(farm.chickenBreed ?? '') || 'Ayam Petelur Cokelat');
     setActiveChickens(Number(farm.activeChickens ?? 0));
     setCurrentAgeWeeks(Number(chickenCurrentAgeWeeks || farm.currentAgeWeeks || 0));
   };
@@ -132,7 +143,7 @@ export const FarmProfilePage: React.FC = () => {
     if (!location.trim()) return showToast('⚠️ Kabupaten/Kota wajib diisi.');
     if (!fullAddress.trim()) return showToast('⚠️ Alamat lengkap wajib diisi.');
     if (latitude == null || longitude == null) return showToast('⚠️ Ambil titik GPS terlebih dahulu.');
-    if (!chickenBreed.trim()) return showToast('⚠️ Jenis/strain ayam wajib diisi.');
+    if (!chickenBreed.trim()) return showToast('⚠️ Jenis ayam wajib dipilih.');
     if (!Number.isInteger(activeChickens) || activeChickens < 1) return showToast('⚠️ Jumlah ayam aktif minimal 1 ekor.');
     if (!Number.isFinite(currentAgeWeeks) || currentAgeWeeks < 1) return showToast('⚠️ Usia ayam wajib diisi.');
 
@@ -253,9 +264,52 @@ export const FarmProfilePage: React.FC = () => {
                 <div className="rounded-xl bg-white border border-[#EFECE6] p-4">
                   <span className="text-xs font-semibold text-stone-500">Titik GPS</span>
                   <p className="text-sm font-bold text-[#1B3022] mt-1">{Number(farm.latitude).toFixed(6)}, {Number(farm.longitude).toFixed(6)}</p>
-                  <button onClick={() => window.open(`https://www.google.com/maps?q=${farm.latitude},${farm.longitude}`, '_blank', 'noopener,noreferrer')} className="mt-2 inline-flex items-center gap-1.5 text-xs font-bold text-[#2D4A36]">
+                  <button
+                    onClick={() => window.open(`https://www.google.com/maps?q=${farm.latitude},${farm.longitude}`, '_blank', 'noopener,noreferrer')}
+                    className="mt-2 inline-flex items-center gap-1.5 text-xs font-bold text-[#2D4A36]"
+                  >
                     <ExternalLink className="w-3.5 h-3.5" /> Buka Google Maps
                   </button>
+                </div>
+              </div>
+
+              <div className="rounded-2xl overflow-hidden bg-white border border-[#E5E1D8]">
+                <div className="px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-[#EFECE6]">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-[#EAF2EC] flex items-center justify-center">
+                      <MapPin className="w-4 h-4 text-[#2D4A36]" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-black text-[#1B3022] uppercase tracking-wider">Peta Lokasi Kandang</p>
+                      <p className="text-[11px] text-stone-500">Titik berdasarkan GPS Farm ID {farm.farmCode}</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => window.open(`https://www.google.com/maps?q=${farm.latitude},${farm.longitude}`, '_blank', 'noopener,noreferrer')}
+                    className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-[#1B3022] text-white text-xs font-black hover:bg-[#2D4A36]"
+                  >
+                    <Navigation className="w-3.5 h-3.5 text-[#D4AF37]" />
+                    Buka Google Maps
+                  </button>
+                </div>
+
+                <div className="relative w-full h-[220px] sm:h-[260px] bg-[#EAF2EC]">
+                  <iframe
+                    title={`Lokasi kandang ${farm.farmCode}`}
+                    src={`https://maps.google.com/maps?q=${encodeURIComponent(`${farm.latitude},${farm.longitude}`)}&z=17&output=embed`}
+                    className="absolute inset-0 w-full h-full border-0"
+                    loading="lazy"
+                    referrerPolicy="no-referrer-when-downgrade"
+                    allowFullScreen
+                  />
+                </div>
+
+                <div className="px-4 py-3 bg-[#FDFBF7] flex items-start gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-[#2D4A36] shrink-0 mt-0.5" />
+                  <p className="text-[11px] sm:text-xs text-stone-600">
+                    Lokasi ditampilkan dari koordinat GPS yang tersimpan pada profil kandang.
+                  </p>
                 </div>
               </div>
             </div>
@@ -271,10 +325,10 @@ export const FarmProfilePage: React.FC = () => {
 
           <div className="p-5 rounded-2xl bg-[#FAF7F2] border border-[#EFECE6] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-xl bg-[#2D4A36] text-white flex items-center justify-center font-black text-lg">{farmScore.totalScore || '—'}</div>
+              <div className="w-12 h-12 rounded-xl bg-[#2D4A36] text-white flex items-center justify-center font-black text-lg">{farmScoreReady ? farmScore.totalScore : '—'}</div>
               <div>
                 <span className="text-xs font-bold text-stone-500 uppercase tracking-wider">Farm Score</span>
-                <p className="text-base font-black text-[#1B3022]">{farmScore.statusText}</p>
+                <p className="text-base font-black text-[#1B3022]">{farmScoreReady ? farmScore.statusText : `Mengumpulkan Data (${reports.length}/7)`}</p>
               </div>
             </div>
             <button onClick={() => { setActivePage('score'); navigate('/score'); }} className="px-4 py-2.5 bg-[#2D4A36] text-white font-bold text-xs rounded-xl inline-flex items-center gap-1.5"><Award className="w-4 h-4 text-[#D4AF37]" /> Lihat Farm Score →</button>
@@ -314,7 +368,19 @@ export const FarmProfilePage: React.FC = () => {
                   <button type="button" onClick={captureGps} disabled={isGettingGps} className="w-full min-h-12 rounded-2xl bg-[#1B3022] text-white font-black flex items-center justify-center gap-2 disabled:opacity-60"><Navigation className="w-4 h-4 text-[#D4AF37]" /> {isGettingGps ? 'Mengambil Lokasi...' : latitude != null && longitude != null ? 'Ambil Ulang GPS' : 'Ambil Lokasi Saya'}</button>
                   {latitude != null && longitude != null && <p className="text-xs font-bold text-[#2D4A36] mt-2">{latitude.toFixed(6)}, {longitude.toFixed(6)}</p>}
                 </Field>
-                <Field label="Jenis / Strain Ayam *"><input value={chickenBreed} onChange={(e) => setChickenBreed(e.target.value)} placeholder="Contoh: Lohmann Brown" className="field" /></Field>
+                <Field label="Jenis Ayam *">
+                  <select value={chickenBreed} onChange={(e) => setChickenBreed(e.target.value)} className="field">
+                    {!CHICKEN_TYPE_OPTIONS.includes(chickenBreed as any) && chickenBreed && (
+                      <option value={chickenBreed}>{chickenBreed}</option>
+                    )}
+                    {CHICKEN_TYPE_OPTIONS.map((type) => (
+                      <option key={type} value={type}>
+                        {type === 'Ayam Petelur Cokelat' ? `${type} — utama paket Eggnest` : type}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] font-semibold text-stone-500 mt-2">Ayam pada paket utama Eggnest termasuk kategori ayam petelur cokelat.</p>
+                </Field>
                 <Field label="Jumlah Ayam Aktif *"><input type="number" min={1} max={1000} value={activeChickens || ''} onChange={(e) => setActiveChickens(Number(e.target.value))} className="field" /></Field>
                 <Field label="Usia Ayam Saat Ini *"><input type="number" min={1} max={200} value={currentAgeWeeks || ''} onChange={(e) => setCurrentAgeWeeks(Number(e.target.value))} className="field" /></Field>
               </div>

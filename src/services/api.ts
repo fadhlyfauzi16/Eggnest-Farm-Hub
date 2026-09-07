@@ -209,6 +209,44 @@ export const api = {
     );
   },
 
+  // Dokter Hewan Siaga — Asisten Kandang 24 Jam
+  async getVetAiHistory() {
+    return request<{
+      success: boolean;
+      messages: Array<{
+        id: string;
+        role: 'user' | 'assistant';
+        message: string;
+        attachment_url?: string | null;
+        created_at: string;
+      }>;
+    }>('/vet-ai/history');
+  },
+
+  async chatVetAi(message: string, photoUrl?: string) {
+    return request<{
+      success: boolean;
+      reply: string;
+      urgent?: boolean;
+      message: {
+        id: string;
+        role: 'assistant';
+        message: string;
+        attachment_url?: string | null;
+        created_at: string;
+      };
+    }>('/vet-ai/chat', {
+      method: 'POST',
+      body: JSON.stringify({ message, photoUrl }),
+    });
+  },
+
+  async clearVetAiHistory() {
+    return request<{ success: boolean }>('/vet-ai/history', {
+      method: 'DELETE',
+    });
+  },
+
   // Support Tickets
   async getTickets() {
     return request<{ success: boolean; tickets: SupportTicket[] }>('/tickets');
@@ -243,6 +281,19 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify({ status, adminNotes }),
     });
+  },
+
+  // Member Notification Center
+  async getNotifications() {
+    return request<{ success: boolean; notifications: any[] }>('/notifications');
+  },
+
+  async markNotificationRead(id: string) {
+    return request<{ success: boolean }>(`/notifications/${encodeURIComponent(id)}/read`, { method: 'PATCH' });
+  },
+
+  async markAllNotificationsRead() {
+    return request<{ success: boolean }>('/notifications/read-all', { method: 'PATCH' });
   },
 
   // Academy CMS
@@ -419,6 +470,45 @@ export const api = {
     if (!res.ok) {
       throw new Error(data.message || 'Gagal upload file');
     }
+    return data;
+  },
+
+  // Academy Media Upload
+  async uploadAcademyMedia(
+    file: File,
+    kind: 'video' | 'thumbnail'
+  ): Promise<{ success: boolean; url: string; filename: string; size: number }> {
+    const token = getToken();
+    const formData = new FormData();
+    // Kirim field kind lebih dulu agar tersedia sebelum Multer memproses file.
+    formData.append('kind', kind);
+    formData.append('file', file);
+
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const res = await fetch('/api/admin/academy/upload', {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+
+    const rawText = await res.text();
+    let data: any;
+    try {
+      data = rawText ? JSON.parse(rawText) : {};
+    } catch {
+      data = {
+        message:
+          rawText?.slice(0, 300) ||
+          `Server mengembalikan respons non-JSON (HTTP ${res.status})`,
+      };
+    }
+
+    if (!res.ok) {
+      throw new Error(data.message || `Gagal upload media Academy (HTTP ${res.status})`);
+    }
+
     return data;
   },
 

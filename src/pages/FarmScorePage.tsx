@@ -33,13 +33,13 @@ export const FarmScorePage: React.FC = () => {
       name: 'Pelaporan',
       score: farmScore.reportScore,
       icon: FileSpreadsheet,
-      desc: 'Konsistensi pencatatan laporan kandang yang benar-benar tersimpan.',
+      desc: 'Konsistensi hari pelaporan selama periode data yang tersedia.',
     },
     {
       name: 'Perawatan',
       score: farmScore.maintenanceScore,
       icon: ShieldCheck,
-      desc: 'Konsistensi pencatatan pakan harian sebagai indikator perawatan.',
+      desc: 'Kewajaran dan konsistensi pakan terhadap jumlah ayam aktif.',
     },
     {
       name: 'Kesehatan',
@@ -62,7 +62,12 @@ export const FarmScorePage: React.FC = () => {
       ? 'Kategori Peternak Berkembang (Tier Silver)'
       : 'Kategori Pembinaan';
 
-  const warrantyActive = Boolean(farm.warrantyEnd);
+  const warrantyEndDate = farm.warrantyEnd ? new Date(`${farm.warrantyEnd}T23:59:59`) : null;
+  const warrantyActive = Boolean(
+    warrantyEndDate &&
+      !Number.isNaN(warrantyEndDate.getTime()) &&
+      warrantyEndDate.getTime() >= Date.now()
+  );
 
   return (
     <div className="space-y-8 pb-12 animate-in fade-in duration-200">
@@ -163,9 +168,13 @@ export const FarmScorePage: React.FC = () => {
                       Status Garansi Paket
                     </span>
                     <p className="text-sm font-bold text-[#1B3022] mt-1">
-                      {warrantyActive ? '✅ Mengikuti masa garansi paket' : '— Belum tersedia'}
+                      {warrantyActive
+                        ? '✅ Garansi paket masih aktif'
+                        : farm.warrantyEnd
+                          ? 'Garansi paket telah berakhir'
+                          : '— Belum tersedia'}
                     </p>
-                    {warrantyActive && (
+                    {farm.warrantyEnd && (
                       <p className="text-[11px] text-stone-500 mt-1">
                         Batas garansi: {farm.warrantyEnd}
                       </p>
@@ -316,7 +325,7 @@ export const FarmScorePage: React.FC = () => {
                     </span>
                     <p className="text-sm font-bold text-[#2D4A36]">
                       <CheckCircle2 className="w-4 h-4 inline mr-1" />
-                      {reportCount} laporan terverifikasi
+                      {reportCount} laporan tersimpan
                     </p>
                   </div>
 
@@ -325,7 +334,7 @@ export const FarmScorePage: React.FC = () => {
                       Status Penilaian:
                     </span>
                     <p className="text-sm font-bold text-[#1B3022]">
-                      Resmi dari data aktual
+                      Dihitung dari data aktual
                     </p>
                   </div>
                 </div>

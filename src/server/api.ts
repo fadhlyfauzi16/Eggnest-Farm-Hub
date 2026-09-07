@@ -11,6 +11,52 @@ import { seedDemoData, resetCleanDatabase } from './seeder';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'eggnest-super-secret-key-2026-production';
 const router = Router();
+// ==========================================
+// MEMBER NOTIFICATION CENTER
+// ==========================================
+function ensureNotificationTable(database: any): void {
+  database.run(`CREATE TABLE IF NOT EXISTS member_notifications (
+    id TEXT PRIMARY KEY,
+    user_id TEXT,
+    farm_id TEXT,
+    type TEXT NOT NULL DEFAULT 'info',
+    category TEXT NOT NULL DEFAULT 'system',
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    link TEXT,
+    reference_id TEXT,
+    dedupe_key TEXT UNIQUE,
+    is_read INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+  )`);
+}
+
+function createMemberNotification(database: any, input: {
+  userId?: string | null; farmId?: string | null; type?: 'info' | 'success' | 'warning';
+  category?: string; title: string; message: string; link?: string; referenceId?: string; dedupeKey?: string;
+}): void {
+  ensureNotificationTable(database);
+  const now = new Date().toISOString();
+  const id = `notif-${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+  try {
+    runSql(database, `INSERT INTO member_notifications
+      (id, user_id, farm_id, type, category, title, message, link, reference_id, dedupe_key, is_read, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+      [id, input.userId || null, input.farmId || null, input.type || 'info', input.category || 'system',
+       input.title, input.message, input.link || null, input.referenceId || null, input.dedupeKey || null, now]);
+  } catch (err: any) {
+    // Duplicate dedupe_key means the same event was already notified.
+    if (!String(err?.message || err).toLowerCase().includes('unique')) throw err;
+  }
+}
+
+function notifyAllActiveMembers(database: any, input: { type?: 'info'|'success'|'warning'; category?: string; title: string; message: string; link?: string; referenceId?: string; dedupePrefix: string }): void {
+  const members = queryAll<any>(database, `SELECT id, farm_id FROM users WHERE role = 'member' AND status = 'active'`);
+  for (const member of members) {
+    createMemberNotification(database, { ...input, userId: member.id, farmId: member.farm_id, dedupeKey: `${input.dedupePrefix}:${member.id}` });
+  }
+}
+
 
 function ensureFarmerProfileColumns(database: any): void {
   const rows = queryAll<any>(database, `PRAGMA table_info(farms)`);
@@ -32,8 +78,17 @@ function ensureFarmerProfileColumns(database: any): void {
 }
 
 
-// Ensure public upload directory exists
-const UPLOADS_DIR = path.join(process.cwd(), 'public', 'uploads');
+// Report photo storage.
+// Development: Vite serves /public automatically.
+// Production: Express serves dist/client, so uploads are written there as well.
+// NOTE: Railway filesystem is ephemeral. Before public launch, point this to
+// persistent/object storage; this implementation is safe for local testing
+// and keeps the URL stable as /uploads/<filename>.
+const UPLOADS_DIR =
+  process.env.NODE_ENV === 'production'
+    ? path.join(process.cwd(), 'dist', 'client', 'uploads')
+    : path.join(process.cwd(), 'public', 'uploads');
+
 if (!fs.existsSync(UPLOADS_DIR)) {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 }
@@ -44,8 +99,14 @@ const storage = multer.diskStorage({
     cb(null, UPLOADS_DIR);
   },
   filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname) || '.jpg';
-    const uniqueName = `img-${Date.now()}-${Math.round(Math.random() * 1e6)}${ext}`;
+    const extensionByMime: Record<string, string> = {
+      'image/jpeg': '.jpg',
+      'image/jpg': '.jpg',
+      'image/png': '.png',
+      'image/webp': '.webp',
+    };
+    const ext = extensionByMime[file.mimetype] || '.jpg';
+    const uniqueName = `report-${Date.now()}-${Math.round(Math.random() * 1e6)}${ext}`;
     cb(null, uniqueName);
   },
 });
@@ -60,6 +121,54 @@ const upload = multer({
     } else {
       cb(new Error('Format file tidak didukung. Harap upload JPG, PNG, atau WEBP.'));
     }
+  },
+});
+
+// Academy media upload: video dan thumbnail dipisahkan dari upload laporan.
+// NOTE production: Railway filesystem bersifat ephemeral. Sebelum go-live,
+// arahkan ACADEMY_UPLOADS_DIR ke persistent volume atau object storage.
+const ACADEMY_UPLOADS_DIR =
+  process.env.NODE_ENV === 'production'
+    ? path.join(process.cwd(), 'dist', 'client', 'uploads', 'academy')
+    : path.join(process.cwd(), 'public', 'uploads', 'academy');
+
+if (!fs.existsSync(ACADEMY_UPLOADS_DIR)) {
+  fs.mkdirSync(ACADEMY_UPLOADS_DIR, { recursive: true });
+}
+
+const academyStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, ACADEMY_UPLOADS_DIR),
+  filename: (_req, file, cb) => {
+    const extensionByMime: Record<string, string> = {
+      'video/mp4': '.mp4',
+      'video/webm': '.webm',
+      'video/quicktime': '.mov',
+      'image/jpeg': '.jpg',
+      'image/jpg': '.jpg',
+      'image/png': '.png',
+      'image/webp': '.webp',
+    };
+    const ext = extensionByMime[file.mimetype] || path.extname(file.originalname).toLowerCase();
+    cb(null, `academy-${Date.now()}-${Math.round(Math.random() * 1e6)}${ext}`);
+  },
+});
+
+const academyUpload = multer({
+  storage: academyStorage,
+  limits: { fileSize: 100 * 1024 * 1024 }, // video maksimal 100 MB
+  fileFilter: (req, file, cb) => {
+    const kind = String((req as any).body?.kind || '');
+    const videoMimes = ['video/mp4', 'video/webm', 'video/quicktime'];
+    const imageMimes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+
+    if (kind === 'video' && videoMimes.includes(file.mimetype)) return cb(null, true);
+    if (kind === 'thumbnail' && imageMimes.includes(file.mimetype)) return cb(null, true);
+
+    cb(new Error(
+      kind === 'video'
+        ? 'Format video tidak didukung. Gunakan MP4, WEBM, atau MOV.'
+        : 'Format thumbnail tidak didukung. Gunakan JPG, PNG, atau WEBP.'
+    ));
   },
 });
 
@@ -419,15 +528,33 @@ router.get('/dashboard', requireAuth, async (req: AuthRequest, res) => {
     );
 
     const activeChickens = Number(farm.active_chickens);
-    const todayStr = '2026-08-31';
+
+    // Tanggal/bulan berjalan menggunakan zona waktu Indonesia (WIB).
+    const jakartaParts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Jakarta',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(new Date());
+
+    const getJakartaPart = (type: 'year' | 'month' | 'day') =>
+      jakartaParts.find((part) => part.type === type)?.value || '';
+
+    const currentYear = getJakartaPart('year');
+    const currentMonth = getJakartaPart('month');
+    const currentDay = getJakartaPart('day');
+    const todayStr = `${currentYear}-${currentMonth}-${currentDay}`;
+    const currentMonthKey = `${currentYear}-${currentMonth}`;
 
     // Today's report (or latest)
     const todayReport = reports.find((r) => r.report_date === todayStr) || reports[reports.length - 1];
     const todayEggCount = todayReport ? todayReport.egg_count : 0;
     const todayFeedKg = todayReport ? todayReport.feed_kg : 0;
 
-    // Current month reports (August 2026)
-    const monthReports = reports.filter((r) => r.report_date.startsWith('2026-08'));
+    // Current month reports mengikuti bulan kalender berjalan.
+    const monthReports = reports.filter((r) =>
+      String(r.report_date || '').startsWith(currentMonthKey)
+    );
     const monthEggCount = monthReports.reduce((acc, r) => acc + (r.egg_count || 0), 0);
     const monthFeedKg = Number(monthReports.reduce((acc, r) => acc + (r.feed_kg || 0), 0).toFixed(1));
 
@@ -457,11 +584,17 @@ router.get('/dashboard', requireAuth, async (req: AuthRequest, res) => {
       currentFcr = Number((monthFeedKg / totalEggMassKg).toFixed(2));
     }
 
-    // Chart data 30 days
+    // Chart data 30 laporan terakhir dengan label bulan dinamis.
     const chartData = reports.slice(-30).map((r) => {
-      const day = r.report_date.split('-')[2];
+      const [year, month, day] = String(r.report_date || '').split('-').map(Number);
+      const monthLabel =
+        year && month && day
+          ? new Intl.DateTimeFormat('id-ID', { month: 'short', timeZone: 'UTC' })
+              .format(new Date(Date.UTC(year, month - 1, day)))
+              .replace('.', '')
+          : '';
       return {
-        day: `${parseInt(day, 10)} Agu`,
+        day: `${day || ''} ${monthLabel}`.trim(),
         tanggal: r.report_date,
         telur: r.egg_count,
         pakan: r.feed_kg,
@@ -501,23 +634,42 @@ router.get('/dashboard', requireAuth, async (req: AuthRequest, res) => {
 router.get('/reports', requireAuth, async (req: AuthRequest, res) => {
   try {
     const db = await getDb();
-    const farmId = req.user?.role === 'member'
-      ? req.user?.farmId
-      : (req.query.farmId as string) || req.user?.farmId;
 
-    if (!farmId) {
-      return res.status(400).json({ success: false, message: 'Farm ID wajib disertakan.' });
+    // Member hanya boleh membaca laporan kandangnya sendiri.
+    if (req.user?.role === 'member') {
+      const farmId = req.user?.farmId;
+
+      if (!farmId) {
+        return res.status(400).json({ success: false, message: 'Farm ID belum terhubung ke akun member.' });
+      }
+
+      const reports = queryAll<any>(
+        db,
+        `SELECT * FROM daily_reports WHERE farm_id = ? ORDER BY report_date ASC`,
+        [farmId]
+      );
+
+      return res.json({ success: true, reports });
     }
 
-    const reports = queryAll<any>(
-      db,
-      `SELECT * FROM daily_reports WHERE farm_id = ? ORDER BY report_date ASC`,
-      [farmId]
-    );
+    // Admin dapat membaca semua laporan. Jika farmId dikirim, hasil difilter ke kandang tersebut.
+    const requestedFarmId = String(req.query.farmId || '').trim();
 
-    res.json({ success: true, reports });
+    const reports = requestedFarmId
+      ? queryAll<any>(
+          db,
+          `SELECT * FROM daily_reports WHERE farm_id = ? ORDER BY report_date ASC`,
+          [requestedFarmId]
+        )
+      : queryAll<any>(
+          db,
+          `SELECT * FROM daily_reports ORDER BY report_date ASC`
+        );
+
+    return res.json({ success: true, reports });
   } catch (err) {
-    res.status(500).json({ success: false, message: 'Gagal memuat laporan harian.' });
+    console.error('Error loading reports:', err);
+    return res.status(500).json({ success: false, message: 'Gagal memuat laporan harian.' });
   }
 });
 
@@ -623,6 +775,13 @@ router.post('/reports', requireAuth, async (req: AuthRequest, res) => {
 
     // Trigger Smart Alerts Engine on the fly
     evaluateSmartAlerts(db, farmId);
+    const owner = queryOne<any>(db, `SELECT id FROM users WHERE farm_id = ? AND role = 'member'`, [farmId]);
+    if (owner) {
+      createMemberNotification(db, { userId: owner.id, farmId, type: 'success', category: 'report', title: 'Laporan Harian Tersimpan', message: `Laporan ${date}: ${Number(eggCount)} telur, produktivitas ${Math.round(productivityRate)}%.`, link: '/reports', referenceId: reportId, dedupeKey: `report-saved:${reportId}:${now}` });
+      if (productivityRate < 75 || chickenCondition !== 'healthy') createMemberNotification(db, { userId: owner.id, farmId, type: 'warning', category: 'production', title: 'Kandang Perlu Perhatian', message: chickenCondition !== 'healthy' ? 'Ada kondisi ayam yang dilaporkan bermasalah. Pantau kandang dan gunakan menu Konsultasi bila diperlukan.' : `Produktivitas hari ini ${Math.round(productivityRate)}%, di bawah batas perhatian 75%.`, link: '/development', referenceId: reportId, dedupeKey: `report-warning:${reportId}:${now}` });
+      const reportCount = Number(queryOne<any>(db, `SELECT COUNT(*) AS total FROM daily_reports WHERE farm_id = ?`, [farmId])?.total || 0);
+      if (reportCount >= 7) createMemberNotification(db, { userId: owner.id, farmId, type: 'success', category: 'score', title: 'Farm Score Sudah Tersedia', message: 'Data laporan sudah cukup untuk menampilkan Farm Score kandang Anda.', link: '/score', dedupeKey: `farm-score-ready:${farmId}` });
+    }
 
     res.json({
       success: true,
@@ -902,9 +1061,402 @@ router.put('/admin/farms/:id', requireAdmin, async (req: AuthRequest, res) => {
   }
 });
 
+router.delete('/admin/farms/:id', requireAdmin, async (req: AuthRequest, res) => {
+  try {
+    const farmId = req.params.id;
+    const deleteMember =
+      String(req.query.deleteMember ?? 'false').toLowerCase() === 'true';
+
+    const db = await getDb();
+
+    const farm = queryOne<any>(
+      db,
+      `
+      SELECT
+        id,
+        farm_code,
+        owner_user_id,
+        owner_name
+      FROM farms
+      WHERE id = ?
+      `,
+      [farmId]
+    );
+
+    if (!farm) {
+      return res.status(404).json({
+        success: false,
+        message: 'Farm ID tidak ditemukan.',
+      });
+    }
+
+    const ownerUserId = farm.owner_user_id || null;
+
+    /*
+      Relasi database:
+      farms
+        -> daily_reports      ON DELETE CASCADE
+        -> support_tickets    ON DELETE CASCADE
+              -> support_messages ON DELETE CASCADE
+        -> alerts             ON DELETE CASCADE
+
+      Jadi cukup hapus farm, data turunannya ikut terhapus.
+    */
+    runSql(db, `DELETE FROM farms WHERE id = ?`, [farmId]);
+
+    /*
+      Jika diminta menghapus member, hanya role MEMBER yang boleh dihapus.
+      Ini mencegah akun admin / veterinarian ikut terhapus secara tidak sengaja.
+    */
+    let memberDeleted = false;
+
+    if (deleteMember && ownerUserId) {
+      const ownerUser = queryOne<any>(
+        db,
+        `
+        SELECT id, role
+        FROM users
+        WHERE id = ?
+        `,
+        [ownerUserId]
+      );
+
+      if (ownerUser?.role === 'member') {
+        runSql(
+          db,
+          `
+          DELETE FROM users
+          WHERE id = ?
+            AND role = 'member'
+          `,
+          [ownerUserId]
+        );
+
+        memberDeleted = true;
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: memberDeleted
+        ? `Farm ${farm.farm_code} dan akun member berhasil dihapus.`
+        : `Farm ${farm.farm_code} berhasil dihapus.`,
+    });
+  } catch (err) {
+    console.error('DELETE FARM ERROR:', err);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Gagal menghapus Farm ID.',
+    });
+  }
+});
+
+// ==========================================
+// 4B. MEMBER NOTIFICATION CENTER
+// ==========================================
+router.get('/notifications', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const db = await getDb();
+    ensureNotificationTable(db);
+    if (req.user?.role !== 'member') return res.json({ success: true, notifications: [] });
+
+    const user = queryOne<any>(db, `SELECT id, farm_id FROM users WHERE id = ?`, [req.user!.id]);
+    const farm = user?.farm_id ? queryOne<any>(db, `SELECT * FROM farms WHERE id = ?`, [user.farm_id]) : null;
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+
+    // Useful reminders are generated idempotently, not on every refresh.
+    if (farm) {
+      const loc = String(farm.location || '').trim().toLowerCase();
+      const complete = Boolean(String(farm.location || '').trim()) && loc !== 'indonesia' && !loc.includes('belum') &&
+        Boolean(String(farm.full_address || '').trim()) && farm.latitude != null && farm.longitude != null &&
+        Boolean(String(farm.chicken_breed || '').trim()) && Number(farm.active_chickens) > 0 && Number(farm.current_age_weeks) > 0;
+      if (!complete) createMemberNotification(db, { userId: user.id, farmId: farm.id, type: 'warning', category: 'farm', title: 'Data Kandang Belum Lengkap', message: 'Lengkapi lokasi, GPS, jenis ayam, jumlah ayam, dan usia ayam agar semua fitur aktif.', link: '/reports', dedupeKey: `farm-profile:${farm.id}` });
+
+      const todayReport = queryOne<any>(db, `SELECT id FROM daily_reports WHERE farm_id = ? AND report_date = ?`, [farm.id, today]);
+      if (!todayReport && complete) createMemberNotification(db, { userId: user.id, farmId: farm.id, type: 'warning', category: 'report', title: 'Laporan Hari Ini Belum Diisi', message: 'Isi laporan telur, pakan, dan kondisi ayam hari ini.', link: '/reports', dedupeKey: `report-reminder:${farm.id}:${today}` });
+
+      if (farm.warranty_end) {
+        const days = Math.ceil((new Date(`${farm.warranty_end}T23:59:59`).getTime() - Date.now()) / 86400000);
+        if (days >= 0 && days <= 30) createMemberNotification(db, { userId: user.id, farmId: farm.id, type: 'warning', category: 'warranty', title: 'Masa Garansi Mendekati Berakhir', message: days === 0 ? 'Masa garansi kandang berakhir hari ini.' : `Masa garansi tersisa ${days} hari.`, link: '/profile', dedupeKey: `warranty:${farm.id}:${farm.warranty_end}` });
+      }
+    }
+
+    const notifications = queryAll<any>(db, `SELECT * FROM member_notifications WHERE user_id = ? OR (user_id IS NULL AND farm_id = ?) ORDER BY created_at DESC LIMIT 100`, [req.user!.id, req.user?.farmId || '']);
+    return res.json({ success: true, notifications });
+  } catch (err) {
+    console.error('GET NOTIFICATIONS ERROR:', err);
+    return res.status(500).json({ success: false, message: 'Gagal memuat notifikasi.' });
+  }
+});
+
+router.patch('/notifications/:id/read', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const db = await getDb(); ensureNotificationTable(db);
+    runSql(db, `UPDATE member_notifications SET is_read = 1 WHERE id = ? AND user_id = ?`, [req.params.id, req.user!.id]);
+    return res.json({ success: true });
+  } catch { return res.status(500).json({ success: false, message: 'Gagal menandai notifikasi.' }); }
+});
+
+router.patch('/notifications/read-all', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const db = await getDb(); ensureNotificationTable(db);
+    runSql(db, `UPDATE member_notifications SET is_read = 1 WHERE user_id = ?`, [req.user!.id]);
+    return res.json({ success: true });
+  } catch { return res.status(500).json({ success: false, message: 'Gagal menandai semua notifikasi.' }); }
+});
+
 // ==========================================
 // 5. SUPPORT TICKETING SYSTEM (THREADED & PERSISTED)
 // ==========================================
+
+
+// ==========================================
+// DOKTER HEWAN SIAGA — ASISTEN KANDANG 24 JAM
+// Gemini runs ONLY on the server. Never expose GEMINI_API_KEY to the browser.
+// ==========================================
+function ensureVetAiTables(database: any): void {
+  database.run(`CREATE TABLE IF NOT EXISTS vet_ai_messages (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    farm_id TEXT,
+    role TEXT NOT NULL CHECK(role IN ('user','assistant')),
+    message TEXT NOT NULL,
+    attachment_url TEXT,
+    created_at TEXT NOT NULL
+  )`);
+  database.run(`CREATE INDEX IF NOT EXISTS idx_vet_ai_user_created
+    ON vet_ai_messages(user_id, created_at)`);
+}
+
+function safeJson(value: any): string {
+  try { return JSON.stringify(value); } catch { return String(value ?? ''); }
+}
+
+function buildFarmContext(farm: any, reports: any[]): string {
+  const recent = reports.slice(-7).map((r: any) => ({
+    tanggal: r.report_date,
+    telur: Number(r.egg_count || 0),
+    pakanKg: Number(r.feed_kg || 0),
+    kondisi: r.chicken_condition,
+    masalah: (() => {
+      try { return r.issue_types ? JSON.parse(r.issue_types) : []; } catch { return r.issue_types || []; }
+    })(),
+    catatan: r.notes || '',
+  }));
+
+  return [
+    `Farm ID: ${farm?.farm_code || '-'}`,
+    `Jenis ayam: ${farm?.chicken_breed || '-'}`,
+    `Ayam aktif: ${Number(farm?.active_chickens || 0)}`,
+    `Umur ayam: ${Number(farm?.current_age_weeks || 0)} minggu`,
+    `Lokasi: ${farm?.location || '-'}`,
+    `Laporan 7 terakhir: ${safeJson(recent)}`,
+  ].join('\n');
+}
+
+function localUploadToInlinePart(photoUrl?: string): any | null {
+  if (!photoUrl || !photoUrl.startsWith('/uploads/')) return null;
+  try {
+    const relative = photoUrl.replace(/^\/uploads\//, '');
+    const filePath =
+      process.env.NODE_ENV === 'production'
+        ? path.join(process.cwd(), 'dist', 'client', 'uploads', relative)
+        : path.join(process.cwd(), 'public', 'uploads', relative);
+
+    if (!fs.existsSync(filePath)) return null;
+    const ext = path.extname(filePath).toLowerCase();
+    const mime =
+      ext === '.png' ? 'image/png' :
+      ext === '.webp' ? 'image/webp' :
+      'image/jpeg';
+
+    return {
+      inline_data: {
+        mime_type: mime,
+        data: fs.readFileSync(filePath).toString('base64'),
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
+router.get('/vet-ai/history', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    if (req.user?.role !== 'member') {
+      return res.status(403).json({ success: false, message: 'Fitur ini khusus member Eggnest.' });
+    }
+    const db = await getDb();
+    ensureVetAiTables(db);
+    const messages = queryAll<any>(
+      db,
+      `SELECT id, role, message, attachment_url, created_at
+       FROM vet_ai_messages WHERE user_id = ? ORDER BY created_at ASC LIMIT 100`,
+      [req.user!.id]
+    );
+    res.json({ success: true, messages });
+  } catch (err) {
+    console.error('Vet AI history error:', err);
+    res.status(500).json({ success: false, message: 'Gagal memuat riwayat Asisten Kandang.' });
+  }
+});
+
+router.delete('/vet-ai/history', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    if (req.user?.role !== 'member') {
+      return res.status(403).json({ success: false, message: 'Fitur ini khusus member Eggnest.' });
+    }
+    const db = await getDb();
+    ensureVetAiTables(db);
+    runSql(db, `DELETE FROM vet_ai_messages WHERE user_id = ?`, [req.user!.id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Gagal menghapus riwayat chat.' });
+  }
+});
+
+router.post('/vet-ai/chat', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    if (req.user?.role !== 'member') {
+      return res.status(403).json({ success: false, message: 'Fitur ini khusus member Eggnest.' });
+    }
+
+    const message = String(req.body?.message || '').trim();
+    const photoUrl = String(req.body?.photoUrl || '').trim();
+    if (!message && !photoUrl) {
+      return res.status(400).json({ success: false, message: 'Tulis pertanyaan atau kirim foto terlebih dahulu.' });
+    }
+
+    const apiKey = String(process.env.GEMINI_API_KEY || '').trim();
+    if (!apiKey) {
+      return res.status(503).json({
+        success: false,
+        message: 'Dokter Hewan Siaga belum diaktifkan. Tambahkan GEMINI_API_KEY pada environment server.',
+      });
+    }
+
+    const db = await getDb();
+    ensureVetAiTables(db);
+
+    const user = queryOne<any>(db, `SELECT * FROM users WHERE id = ?`, [req.user!.id]);
+    const farmId = req.user?.farmId || user?.farm_id;
+    const farm = farmId ? queryOne<any>(db, `SELECT * FROM farms WHERE id = ?`, [farmId]) : null;
+    const reports = farmId
+      ? queryAll<any>(db, `SELECT * FROM daily_reports WHERE farm_id = ? ORDER BY report_date ASC`, [farmId])
+      : [];
+
+    const history = queryAll<any>(
+      db,
+      `SELECT role, message FROM vet_ai_messages WHERE user_id = ? ORDER BY created_at DESC LIMIT 12`,
+      [req.user!.id]
+    ).reverse();
+
+    const now = new Date().toISOString();
+    const userMsgId = `vet-user-${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+    runSql(
+      db,
+      `INSERT INTO vet_ai_messages (id, user_id, farm_id, role, message, attachment_url, created_at)
+       VALUES (?, ?, ?, 'user', ?, ?, ?)`,
+      [userMsgId, req.user!.id, farmId || null, message || 'Mohon analisis foto kondisi kandang ini.', photoUrl || null, now]
+    );
+
+    const contents: any[] = history.map((item: any) => ({
+      role: item.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: String(item.message || '') }],
+    }));
+
+    const latestParts: any[] = [{
+      text: message || 'Mohon analisis foto ini dalam konteks pemeliharaan ayam petelur saya.',
+    }];
+    const imagePart = localUploadToInlinePart(photoUrl);
+    if (imagePart) latestParts.push(imagePart);
+    contents.push({ role: 'user', parts: latestParts });
+
+    const systemInstruction = `Anda adalah "Dokter Hewan Siaga — Asisten Kandang 24 Jam" milik Eggnest Farm.
+Anda membantu member memantau ayam petelur dengan bahasa Indonesia yang sederhana, ramah, ringkas, dan mudah dipahami usia 40+.
+
+KONTEKS KANDANG MEMBER:
+${buildFarmContext(farm, reports)}
+
+ATURAN WAJIB:
+- Gunakan data kandang di atas bila relevan. Jangan mengarang data yang tidak tersedia.
+- Anda adalah asisten AI pendamping, bukan pengganti pemeriksaan dokter hewan.
+- Jangan menyatakan diagnosis pasti hanya dari chat/foto. Gunakan istilah "kemungkinan", "indikasi", atau "perlu diperiksa".
+- Bila ada kematian mendadak, sesak berat, perdarahan, kejang, banyak ayam sakit sekaligus, penurunan drastis, atau dugaan penyakit menular: sarankan segera eskalasi ke Tim Eggnest/dokter hewan.
+- Jangan memberikan dosis obat resep, antibiotik, hormon, atau obat keras tanpa arahan dokter hewan.
+- Untuk pertanyaan umum, berikan langkah pemeriksaan awal yang aman dan praktis.
+- Jika input laporan tampak tidak wajar (misalnya pakan jauh di atas jumlah ayam), minta member mengecek kembali satuan/desimal.
+- Jawaban ideal: ringkasan kondisi, 2-5 langkah yang bisa dilakukan sekarang, tanda bahaya yang perlu dipantau, dan kapan perlu menghubungi Tim Eggnest.
+- Jangan menyebut diri Anda "Gemini".`;
+
+    const model = String(process.env.GEMINI_MODEL || 'gemini-3.7-flash').trim();
+    const geminiResponse = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey,
+        },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: systemInstruction }] },
+          contents,
+          generationConfig: {
+            temperature: 0.35,
+            maxOutputTokens: 900,
+          },
+        }),
+      }
+    );
+
+    const geminiData: any = await geminiResponse.json().catch(() => ({}));
+    if (!geminiResponse.ok) {
+      console.error('Gemini API error:', geminiResponse.status, geminiData);
+      return res.status(502).json({
+        success: false,
+        message: geminiData?.error?.message || 'Asisten Kandang sedang tidak dapat menjawab. Silakan coba lagi.',
+      });
+    }
+
+    const reply = String(
+      geminiData?.candidates?.[0]?.content?.parts
+        ?.map((part: any) => part?.text || '')
+        .join('\n')
+        .trim() || ''
+    );
+
+    if (!reply) {
+      return res.status(502).json({ success: false, message: 'Asisten Kandang belum menghasilkan jawaban. Silakan coba lagi.' });
+    }
+
+    const assistantMsgId = `vet-ai-${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+    runSql(
+      db,
+      `INSERT INTO vet_ai_messages (id, user_id, farm_id, role, message, attachment_url, created_at)
+       VALUES (?, ?, ?, 'assistant', ?, NULL, ?)`,
+      [assistantMsgId, req.user!.id, farmId || null, reply, new Date().toISOString()]
+    );
+
+    const urgent = /segera|dokter hewan|kematian|sesak|perdarahan|kejang|menular|darurat/i.test(reply);
+    res.json({
+      success: true,
+      reply,
+      urgent,
+      message: {
+        id: assistantMsgId,
+        role: 'assistant',
+        message: reply,
+        attachment_url: null,
+        created_at: new Date().toISOString(),
+      },
+    });
+  } catch (err: any) {
+    console.error('Vet AI chat error:', err);
+    res.status(500).json({ success: false, message: 'Terjadi kesalahan saat menghubungi Asisten Kandang.' });
+  }
+});
+
 
 router.get('/tickets', requireAuth, async (req: AuthRequest, res) => {
   try {
@@ -961,8 +1513,8 @@ router.post('/tickets', requireAuth, async (req: AuthRequest, res) => {
       [
         ticketId,
         randomCode,
-        farm?.id || 'farm-001',
-        farm?.farm_code || 'EN-000127',
+        farm?.id || null,
+        farm?.farm_code || null,
         user?.id,
         user?.full_name || 'Peternak Eggnest',
         category || 'Lainnya',
@@ -987,6 +1539,7 @@ router.post('/tickets', requireAuth, async (req: AuthRequest, res) => {
 
     const createdTicket = queryOne<any>(db, `SELECT * FROM support_tickets WHERE id = ?`, [ticketId]);
     createdTicket.messages = queryAll<any>(db, `SELECT * FROM support_messages WHERE ticket_id = ?`, [ticketId]);
+    createMemberNotification(db, { userId: user?.id, farmId: farm?.id, type: 'success', category: 'ticket', title: 'Konsultasi Berhasil Dikirim', message: `Tiket #${randomCode} telah diterima Tim Eggnest.`, link: `/support?ticket=${ticketId}`, referenceId: ticketId, dedupeKey: `ticket-created:${ticketId}` });
 
     res.status(201).json({
       success: true,
@@ -1039,6 +1592,9 @@ router.post('/tickets/:id/messages', requireAuth, async (req: AuthRequest, res) 
       runSql(db, `UPDATE support_tickets SET updated_at = ? WHERE id = ?`, [now, ticketId]);
     }
 
+    if (senderRole === 'admin') {
+      createMemberNotification(db, { userId: ticket.user_id, farmId: ticket.farm_id, type: 'success', category: 'ticket', title: 'Balasan Baru dari Tim Eggnest', message: `Tiket #${ticket.ticket_code} mendapat balasan/solusi baru.`, link: `/support?ticket=${ticketId}`, referenceId: ticketId, dedupeKey: `ticket-reply:${msgId}` });
+    }
     const messages = queryAll<any>(db, `SELECT * FROM support_messages WHERE ticket_id = ? ORDER BY created_at ASC`, [ticketId]);
     res.json({ success: true, message: 'Balasan terkirim.', messages });
   } catch (err) {
@@ -1058,6 +1614,8 @@ router.patch('/admin/tickets/:id/status', requireAdmin, async (req: AuthRequest,
 
     const db = await getDb();
     const now = new Date().toISOString();
+    const ticket = queryOne<any>(db, `SELECT * FROM support_tickets WHERE id = ?`, [ticketId]);
+    if (!ticket) return res.status(404).json({ success: false, message: 'Tiket tidak ditemukan.' });
 
     runSql(
       db,
@@ -1069,6 +1627,8 @@ router.patch('/admin/tickets/:id/status', requireAdmin, async (req: AuthRequest,
       [status, adminNotes || null, now, ticketId]
     );
 
+    const statusText: Record<string, string> = { 'Diterima': 'Konsultasi Anda sudah diterima Tim Eggnest.', 'Diproses': 'Konsultasi Anda sedang diproses oleh Tim Eggnest.', 'Solusi Diberikan': 'Solusi untuk konsultasi Anda sudah tersedia.', 'Selesai': 'Konsultasi telah selesai. Jika masalah berlanjut, silakan buat konsultasi baru.' };
+    createMemberNotification(db, { userId: ticket.user_id, farmId: ticket.farm_id, type: status === 'Selesai' ? 'success' : 'info', category: 'ticket', title: `Tiket ${status}`, message: `#${ticket.ticket_code} — ${statusText[status]}`, link: `/support?ticket=${ticketId}`, referenceId: ticketId, dedupeKey: `ticket-status:${ticketId}:${status}` });
     res.json({ success: true, message: `Status tiket diperbarui menjadi "${status}".` });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Gagal memperbarui status tiket.' });
@@ -1097,7 +1657,18 @@ router.get('/academy', async (req, res) => {
 
 router.post('/admin/academy', requireAdmin, async (req: AuthRequest, res) => {
   try {
-    const { title, category, description, content, type = 'article', videoUrl, duration, thumbnail, readTime } = req.body;
+    const {
+      title,
+      category,
+      description,
+      content,
+      type = 'article',
+      videoUrl,
+      duration,
+      thumbnail,
+      readTime,
+      published = true,
+    } = req.body;
 
     if (!title || !content) {
       return res.status(400).json({ success: false, message: 'Judul dan konten materi wajib diisi.' });
@@ -1111,7 +1682,7 @@ router.post('/admin/academy', requireAdmin, async (req: AuthRequest, res) => {
       db,
       `INSERT INTO academy_contents (
         id, title, category, description, content, type, video_url, duration, thumbnail, read_time, published, is_recommended, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
       [
         id,
         title,
@@ -1123,12 +1694,14 @@ router.post('/admin/academy', requireAdmin, async (req: AuthRequest, res) => {
         duration || '2 menit',
         thumbnail || 'https://images.unsplash.com/photo-1548550023-2bdb3c5beed7?auto=format&fit=crop&w=600&q=80',
         readTime || '2 mnt baca',
+        published ? 1 : 0,
         now,
         now,
       ]
     );
 
     const created = queryOne<any>(db, `SELECT * FROM academy_contents WHERE id = ?`, [id]);
+    if (published) notifyAllActiveMembers(db, { type: 'info', category: 'academy', title: 'Materi Academy Baru', message: title, link: `/academy?content=${id}`, referenceId: id, dedupePrefix: `academy-published:${id}` });
     res.status(201).json({ success: true, message: 'Materi Academy baru berhasil dipublikasikan.', content: created });
   } catch (err: any) {
     console.error('Error adding academy content:', err);
@@ -1179,6 +1752,7 @@ router.patch('/admin/academy/:id/publish', requireAdmin, async (req: AuthRequest
     const newStatus = current.published === 1 ? 0 : 1;
     const now = new Date().toISOString();
     runSql(db, `UPDATE academy_contents SET published = ?, updated_at = ? WHERE id = ?`, [newStatus, now, id]);
+    if (newStatus === 1) { const material = queryOne<any>(db, `SELECT title FROM academy_contents WHERE id = ?`, [id]); notifyAllActiveMembers(db, { type: 'info', category: 'academy', title: 'Materi Academy Baru', message: material?.title || 'Materi baru telah dipublikasikan.', link: `/academy?content=${id}`, referenceId: id, dedupePrefix: `academy-published:${id}` }); }
 
     res.json({
       success: true,
@@ -1202,6 +1776,7 @@ router.patch('/admin/academy/:id/recommend', requireAdmin, async (req: AuthReque
     const newStatus = current.is_recommended === 1 ? 0 : 1;
     const now = new Date().toISOString();
     runSql(db, `UPDATE academy_contents SET is_recommended = ?, updated_at = ? WHERE id = ?`, [newStatus, now, id]);
+    if (newStatus === 1) { const material = queryOne<any>(db, `SELECT title, published FROM academy_contents WHERE id = ?`, [id]); if (material?.published === 1) notifyAllActiveMembers(db, { type: 'success', category: 'academy', title: 'Rekomendasi Academy untuk Anda', message: material?.title || 'Ada materi rekomendasi baru.', link: `/academy?content=${id}`, referenceId: id, dedupePrefix: `academy-recommended:${id}` }); }
 
     res.json({
       success: true,
@@ -1784,6 +2359,45 @@ router.get('/admin/logs', requireAdmin, async (_req: AuthRequest, res) => {
     res.status(500).json({ success: false, message: 'Gagal memuat log audit.' });
   }
 });
+
+// ==========================================
+// ACADEMY MEDIA UPLOAD
+// ==========================================
+router.post(
+  '/admin/academy/upload',
+  requireAdmin,
+  academyUpload.single('file'),
+  (req: Request, res: Response) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ success: false, message: 'File Academy tidak ditemukan.' });
+      }
+
+      const kind = String(req.body?.kind || '');
+      const isVideo = ['video/mp4', 'video/webm', 'video/quicktime'].includes(req.file.mimetype);
+      const isImage = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'].includes(req.file.mimetype);
+
+      if ((kind === 'video' && !isVideo) || (kind === 'thumbnail' && !isImage)) {
+        try { fs.unlinkSync(req.file.path); } catch {}
+        return res.status(400).json({ success: false, message: 'Jenis file tidak sesuai dengan tipe upload.' });
+      }
+
+      const publicUrl = `/uploads/academy/${req.file.filename}`;
+      return res.json({
+        success: true,
+        url: publicUrl,
+        filename: req.file.filename,
+        size: req.file.size,
+      });
+    } catch (err: any) {
+      console.error('Academy upload error:', err);
+      return res.status(500).json({
+        success: false,
+        message: err.message || 'Gagal mengupload media Academy.',
+      });
+    }
+  }
+);
 
 // ==========================================
 // 9. FILE UPLOAD ENDPOINT
