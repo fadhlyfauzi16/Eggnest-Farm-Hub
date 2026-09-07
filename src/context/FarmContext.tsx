@@ -348,6 +348,8 @@ const localDateKey = (value: Date = new Date()): string => {
 };
 
 const hasCompleteFarmData = (farm: any): boolean => {
+  if (farm?.profile_complete === false || farm?.profileComplete === false) return false;
+
   const location = String(farm?.location ?? '').trim();
   const locationKey = location.toLowerCase();
   const validLocation = location.length > 0 && locationKey !== 'indonesia' && !locationKey.includes('belum');

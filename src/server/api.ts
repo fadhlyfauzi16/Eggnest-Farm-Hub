@@ -239,6 +239,38 @@ export function requireAdmin(req: AuthRequest, res: Response, next: NextFunction
   });
 }
 
+function isMemberFarmProfileComplete(farm: any): boolean {
+  if (!farm) return false;
+  const location = String(farm.location || '').trim();
+  const locationKey = location.toLowerCase();
+  return location.length > 0 &&
+    locationKey !== 'indonesia' &&
+    !locationKey.includes('belum') &&
+    String(farm.full_address || '').trim().length > 0 &&
+    farm.latitude !== null && farm.latitude !== undefined && farm.latitude !== '' && Number.isFinite(Number(farm.latitude)) &&
+    farm.longitude !== null && farm.longitude !== undefined && farm.longitude !== '' && Number.isFinite(Number(farm.longitude)) &&
+    String(farm.chicken_breed || '').trim().length > 0 &&
+    Number(farm.active_chickens) > 0 &&
+    Number(farm.current_age_weeks) > 0;
+}
+
+function sanitizeFarmForMember(farm: any): any {
+  if (!farm) return null;
+  if (isMemberFarmProfileComplete(farm)) return { ...farm, profile_complete: true };
+  return {
+    ...farm,
+    location: '',
+    full_address: '',
+    latitude: null,
+    longitude: null,
+    active_chickens: 0,
+    chicken_breed: '',
+    current_age_weeks: 0,
+    chicken_age_reference_date: null,
+    profile_complete: false,
+  };
+}
+
 // ==========================================
 // 1. AUTHENTICATION & REGISTRATION ENDPOINTS
 // ==========================================
@@ -312,7 +344,7 @@ router.post('/auth/register', async (req, res) => {
         phone = ?,
         status = 'active',
         activation_date = ?,
-        location = CASE WHEN location LIKE '%Belum%' THEN 'Indonesia' ELSE location END,
+        location = CASE WHEN location LIKE '%Belum%' OR LOWER(TRIM(COALESCE(location, ''))) = 'indonesia' THEN '' ELSE location END,
         updated_at = ?
        WHERE id = ?`,
       [newUserId, fullName.trim(), cleanPhone, todayDate, now, farm.id]
@@ -341,7 +373,7 @@ router.post('/auth/register', async (req, res) => {
       message: `Registrasi berhasil! Farm ID ${cleanCode} telah aktif terhubung.`,
       token,
       user: createdUser,
-      farm: updatedFarm,
+      farm: sanitizeFarmForMember(updatedFarm),
     });
   } catch (err: any) {
     console.error('Error during register:', err);
@@ -452,7 +484,7 @@ router.post('/auth/login', async (req, res) => {
         message: `Selamat datang kembali, ${memberUser.full_name}!`,
         token,
         user: safeUser,
-        farm,
+        farm: sanitizeFarmForMember(farm),
       });
     }
   } catch (err: any) {
@@ -479,7 +511,11 @@ router.get('/auth/me', requireAuth, async (req: AuthRequest, res) => {
       farm = queryOne<any>(db, `SELECT * FROM farms WHERE id = ?`, [user.farm_id]);
     }
 
-    res.json({ success: true, user, farm });
+    res.json({
+      success: true,
+      user,
+      farm: user.role === 'member' ? sanitizeFarmForMember(farm) : farm,
+    });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Gagal memuat profil user.' });
   }
@@ -729,7 +765,7 @@ router.post('/reports', requireAuth, async (req: AuthRequest, res) => {
     const eggsPerKgSetting = queryOne<any>(db, `SELECT value FROM system_settings WHERE key = 'eggsPerKg'`);
     const eggsPerKg = eggsPerKgSetting ? JSON.parse(eggsPerKgSetting.value) : 16;
 
-    const activeChickens = farm.active_chickens || 12;
+    const activeChickens = Number(farm.active_chickens);
     const productivityRate = Number(((eggCount / activeChickens) * 100).toFixed(1));
     const eggMassKg = eggCount > 0 ? eggCount / eggsPerKg : 0;
     const fcr = eggMassKg > 0 ? Number((feedKg / eggMassKg).toFixed(2)) : null;
@@ -1234,6 +1270,7 @@ function safeJson(value: any): string {
 }
 
 function buildFarmContext(farm: any, reports: any[]): string {
+  const profileComplete = isMemberFarmProfileComplete(farm);
   const recent = reports.slice(-7).map((r: any) => ({
     tanggal: r.report_date,
     telur: Number(r.egg_count || 0),
@@ -1245,12 +1282,27 @@ function buildFarmContext(farm: any, reports: any[]): string {
     catatan: r.notes || '',
   }));
 
+  if (!profileComplete) {
+    return [
+      `Farm ID: ${farm?.farm_code || '-'}`,
+      'Status profil kandang: BELUM LENGKAP / BELUM DIAKTIFKAN MEMBER',
+      'Jenis ayam: belum diisi member',
+      'Ayam aktif: belum diisi member',
+      'Umur ayam: belum diisi member',
+      'Lokasi: belum diisi member',
+      `Laporan kandang tersimpan: ${reports.length}`,
+      `Laporan 7 terakhir: ${safeJson(recent)}`,
+      'PENTING: Jangan menganggap nilai paket/default admin sebagai kondisi kandang aktual member.',
+    ].join('\n');
+  }
+
   return [
     `Farm ID: ${farm?.farm_code || '-'}`,
-    `Jenis ayam: ${farm?.chicken_breed || '-'}`,
-    `Ayam aktif: ${Number(farm?.active_chickens || 0)}`,
-    `Umur ayam: ${Number(farm?.current_age_weeks || 0)} minggu`,
-    `Lokasi: ${farm?.location || '-'}`,
+    'Status profil kandang: LENGKAP',
+    `Jenis ayam: ${farm.chicken_breed}`,
+    `Ayam aktif: ${Number(farm.active_chickens)}`,
+    `Umur ayam: ${Number(farm.current_age_weeks)} minggu`,
+    `Lokasi: ${farm.location}`,
     `Laporan 7 terakhir: ${safeJson(recent)}`,
   ].join('\n');
 }
@@ -1380,7 +1432,8 @@ KONTEKS KANDANG MEMBER:
 ${buildFarmContext(farm, reports)}
 
 ATURAN WAJIB:
-- Gunakan data kandang di atas bila relevan. Jangan mengarang data yang tidak tersedia.
+- Gunakan hanya data kandang/laporan milik Farm ID member yang sedang login. Jangan mengarang data yang tidak tersedia.
+- Jika status profil kandang BELUM LENGKAP, jangan menyebut jumlah ayam, jenis ayam, umur, atau lokasi seolah-olah sudah diketahui. Minta member melengkapi Profil Kandang bila data itu diperlukan.
 - Anda adalah asisten AI pendamping, bukan pengganti pemeriksaan dokter hewan.
 - Jangan menyatakan diagnosis pasti hanya dari chat/foto. Gunakan istilah "kemungkinan", "indikasi", atau "perlu diperiksa".
 - Bila ada kematian mendadak, sesak berat, perdarahan, kejang, banyak ayam sakit sekaligus, penurunan drastis, atau dugaan penyakit menular: sarankan segera eskalasi ke Tim Eggnest/dokter hewan.
