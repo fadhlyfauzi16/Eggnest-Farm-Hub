@@ -1,4 +1,4 @@
-export type UserRole = 'member' | 'admin';
+export type UserRole = 'member' | 'admin' | 'mitra';
 export type UserStatus = 'active' | 'inactive';
 
 export interface User {
@@ -9,7 +9,9 @@ export interface User {
   passwordHash?: string;
   role: UserRole;
   status: UserStatus;
-  farmId?: string; // associated Farm ID
+  farmId?: string;
+  partnerId?: string;
+  partnerCode?: string;
   createdAt: string;
   updatedAt?: string;
 }
@@ -18,29 +20,58 @@ export type FarmStatus = 'unclaimed' | 'active' | 'warning' | 'critical' | 'inac
 
 export interface Farm {
   id: string;
-  farmCode: string; // e.g. EN-000001, EN-000127
-  userId?: string; // null until claimed
+  farmCode: string;
+  userId?: string;
+  ownerUserId?: string;
   ownerName: string;
   phone: string;
   location: string;
   purchaseDate?: string;
-  activationDate: string; // e.g. YYYY-MM-DD or readable
+  fullAddress?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  province?: string;
+  regency?: string;
+  district?: string;
+  village?: string;
+  partnerId?: string | null;
+  partnerCode?: string;
+  partnerName?: string;
+  partnerPhone?: string;
+  activationDate: string;
   initialChickens: number;
   activeChickens: number;
   chickenBreed: string;
   initialAgeWeeks: number;
   currentAgeWeeks: number;
+  chickenAgeReferenceDate?: string;
   warrantyEnd: string;
-  status: 'active' | 'warning' | 'critical' | 'unclaimed';
+  status: FarmStatus;
   photoUrl: string;
+  profileComplete?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface MitraProfile {
+  id: string;
+  partnerCode: string;
+  name: string;
+  phone: string;
+  address?: string;
+  province?: string;
+  regency?: string;
+  district?: string;
+  village?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  status: UserStatus;
   createdAt?: string;
   updatedAt?: string;
 }
 
 export type ChickenCondition = 'healthy' | 'issue';
-
 export type ChickenHealthStatus = 'HEALTHY' | 'SICK' | 'DEAD' | 'REPLACED';
-
 export type ChickenProblemType =
   | 'Tidak mau makan'
   | 'Lemas / Sayap Turun'
@@ -102,7 +133,7 @@ export type IssueType =
 export interface DailyReport {
   id: string;
   farmId: string;
-  date: string; // YYYY-MM-DD
+  date: string;
   eggCount: number;
   feedKg: number;
   chickenCondition: ChickenCondition;
@@ -112,9 +143,14 @@ export interface DailyReport {
   videoUrl?: string;
   createdAt: string;
   updatedAt?: string;
-  productivityRate: number; // in percentage, e.g. 83.3%
+  productivityRate: number;
+  fcr?: number | null;
+  layingChickens?: number[];
+  reportedById?: string;
+  reportedByName?: string;
+  reportedByRole?: 'mitra' | 'admin';
   chickenReports?: {
-    chickenId: string;
+    chickenId?: string;
     chickenNumber: number;
     condition: 'HEALTHY' | 'SICK' | 'DEAD';
     problemTypes?: string[];
@@ -125,20 +161,14 @@ export interface DailyReport {
 export interface FarmScore {
   id: string;
   farmId: string;
-  productionScore: number; // out of 100
-  reportScore: number; // out of 100
-  maintenanceScore: number; // out of 100
-  healthScore: number; // out of 100
-  totalScore: number; // out of 100
+  productionScore: number;
+  reportScore: number;
+  maintenanceScore: number;
+  healthScore: number;
+  totalScore: number;
   statusText: 'SANGAT BAIK' | 'BAIK' | 'CUKUP' | 'PERLU PERBAIKAN';
   streakDays: number;
-  badges: {
-    id: string;
-    icon: string;
-    title: string;
-    description: string;
-    earnedDate: string;
-  }[];
+  badges: { id: string; icon: string; title: string; description: string; earnedDate: string }[];
   updatedAt: string;
 }
 
@@ -159,7 +189,7 @@ export interface SupportMessage {
   ticketId: string;
   senderId: string;
   senderName: string;
-  senderRole: 'member' | 'admin' | 'veterinarian';
+  senderRole: 'member' | 'admin' | 'veterinarian' | 'mitra';
   message: string;
   attachmentUrl?: string;
   createdAt: string;
@@ -167,7 +197,7 @@ export interface SupportMessage {
 
 export interface SupportTicket {
   id: string;
-  ticketCode: string; // e.g. EN-CS-000001
+  ticketCode: string;
   farmId: string;
   farmCode: string;
   userId?: string;
@@ -245,15 +275,15 @@ export interface AdminAlert {
 }
 
 export interface SystemSettings {
-  eggPricePerKg: number; // e.g. 32000
-  eggsPerKg: number; // e.g. 16
-  warningDropThreshold: number; // e.g. 15 (%)
-  criticalDropThreshold: number; // e.g. 30 (%)
-  warningMissedReportDays: number; // e.g. 3 (hari)
-  criticalMissedReportDays: number; // e.g. 4 (hari)
-  whatsappSupportNumber: string; // e.g. "0812-8899-7700"
-  companyName: string; // e.g. "Eggnest Indonesia"
-  companyAddress: string; // e.g. "Jakarta, Indonesia"
+  eggPricePerKg: number;
+  eggsPerKg: number;
+  warningDropThreshold: number;
+  criticalDropThreshold: number;
+  warningMissedReportDays: number;
+  criticalMissedReportDays: number;
+  whatsappSupportNumber: string;
+  companyName: string;
+  companyAddress: string;
   logoUrl?: string;
 }
 

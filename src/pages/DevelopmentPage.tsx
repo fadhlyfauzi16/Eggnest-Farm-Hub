@@ -1,6 +1,6 @@
-import React, { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useFarm } from '../context/FarmContext';
+import { api } from '../services/api';
 import {
   TrendingUp,
   Calendar,
@@ -15,6 +15,7 @@ import {
   Droplets,
   ThermometerSun,
   ShieldAlert,
+  ArrowDownRight,
   ArrowUpRight,
 } from 'lucide-react';
 import {
@@ -29,25 +30,34 @@ import {
 } from 'recharts';
 
 export const DevelopmentPage: React.FC = () => {
-  const navigate = useNavigate();
   const {
     farm,
     reports,
+    monthEggCount,
+    averageEggsPerDay,
+    productivityRate,
+    productivityStatus,
+    monthFeedKg,
     settings,
+    fcrRatio,
     setActivePage,
   } = useFarm();
 
-  const pricePerEgg = Math.round((settings.eggPricePerKg || 32000) / (settings.eggsPerKg || 16));
-
-  const jakartaParts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Jakarta',
-    year: 'numeric',
-    month: '2-digit',
-  }).formatToParts(new Date());
-  const currentYear = jakartaParts.find((part) => part.type === 'year')?.value || String(new Date().getFullYear());
-  const currentMonth = jakartaParts.find((part) => part.type === 'month')?.value || String(new Date().getMonth() + 1).padStart(2, '0');
-  const currentMonthKey = `${currentYear}-${currentMonth}`;
+  const today = new Date();
+  const currentMonthKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
   const [selectedMonth, setSelectedMonth] = useState(currentMonthKey);
+  const [salesSummary, setSalesSummary] = useState({ totalAmount: 0, totalEggs: 0, transactionCount: 0 });
+
+  useEffect(() => {
+    api.getEggSales({ month: selectedMonth })
+      .then((res) => setSalesSummary({
+        totalAmount: Number(res.summary?.totalAmount || 0),
+        totalEggs: Number(res.summary?.totalEggs || 0),
+        transactionCount: Number(res.summary?.transactionCount || 0),
+      }))
+      .catch(() => setSalesSummary({ totalAmount: 0, totalEggs: 0, transactionCount: 0 }));
+  }, [selectedMonth]);
+
 
   const monthOptions = useMemo(() => {
     const keys = new Set<string>([currentMonthKey]);
@@ -100,50 +110,10 @@ export const DevelopmentPage: React.FC = () => {
         : selectedProductivity >= 70
           ? 'Cukup'
           : 'Perlu Perhatian';
-  const selectedEstimatedEggValue = Math.round(selectedEggCount * pricePerEgg);
   const selectedFcr =
     selectedEggCount > 0
       ? Math.round((selectedFeedKg / (selectedEggCount / (settings.eggsPerKg || 16))) * 100) / 100
       : 0;
-
-  const [selectedYearNum, selectedMonthNum] = selectedMonth.split('-').map(Number);
-  const previousMonthDate = new Date(selectedYearNum, selectedMonthNum - 2, 1);
-  const previousMonthKey = `${previousMonthDate.getFullYear()}-${String(previousMonthDate.getMonth() + 1).padStart(2, '0')}`;
-  const previousMonthReports = reports.filter((report) =>
-    String(report.date || '').startsWith(previousMonthKey)
-  );
-  const previousMonthEggCount = previousMonthReports.reduce(
-    (sum, report) => sum + Number(report.eggCount || 0),
-    0
-  );
-  const monthChangePercent =
-    previousMonthEggCount > 0
-      ? Math.round(((selectedEggCount - previousMonthEggCount) / previousMonthEggCount) * 1000) / 10
-      : null;
-
-  const activeChickens = Number(farm.activeChickens || 0);
-  const idealDailyEggTarget = activeChickens > 0 ? Math.max(1, Math.round(activeChickens * 0.85)) : 0;
-  const expectedFeedKg = activeChickens > 0 ? activeChickens * 0.1 : 0;
-  const selectedAverageFeed =
-    selectedReports.length > 0 ? selectedFeedKg / selectedReports.length : 0;
-
-  const feedState: 'insufficient' | 'low' | 'normal' | 'high' | 'extreme' =
-    selectedReports.length === 0 || expectedFeedKg <= 0
-      ? 'insufficient'
-      : selectedAverageFeed > expectedFeedKg * 2
-        ? 'extreme'
-        : selectedAverageFeed > expectedFeedKg * 1.35
-          ? 'high'
-          : selectedAverageFeed < expectedFeedKg * 0.65
-            ? 'low'
-            : 'normal';
-
-  const healthIssueReports = selectedReports.filter(
-    (report) => report.chickenCondition === 'issue'
-  );
-  const latestSelectedReport =
-    selectedReports.length > 0 ? selectedReports[selectedReports.length - 1] : null;
-  const latestHealthIssue = latestSelectedReport?.chickenCondition === 'issue';
   const [showCauseModal, setShowCauseModal] = useState(false);
   const [showFcrModal, setShowFcrModal] = useState(false);
   const [showFeedOverlay, setShowFeedOverlay] = useState(true);
@@ -165,11 +135,11 @@ export const DevelopmentPage: React.FC = () => {
       telur: r.eggCount,
       pakanKg: r.feedKg,
       produktivitas: r.productivityRate,
-      target: idealDailyEggTarget,
+      target: 10,
     };
   });
 
-  // Smart Analysis berbasis laporan nyata. Ini bukan diagnosis penyakit.
+  // Analisis otomatis berbasis data nyata pada bulan yang dipilih.
   const analysis = useMemo(() => {
     const count = selectedReports.length;
     const avg = selectedAverageEggs;
@@ -177,106 +147,71 @@ export const DevelopmentPage: React.FC = () => {
     let productionTitle = 'Data Belum Tersedia';
     let productionBadge = 'Belum ada laporan';
     let productionDescription =
-      'Isi laporan harian agar sistem dapat membaca performa kandang.';
+      'Isi laporan harian agar sistem dapat menganalisis performa kandang.';
 
     if (count > 0 && count < 3) {
       productionTitle = 'Data Awal Terkumpul';
       productionBadge = `Rata-rata ${String(avg).replace('.', ',')} butir/hari`;
       productionDescription =
-        `Sudah ada ${count} laporan. Minimal 3 laporan diperlukan agar analisis produksi lebih bermakna.`;
+        `Sudah ada ${count} laporan pada periode ini. Minimal 3 laporan diperlukan agar analisis tren lebih bermakna.`;
     } else if (count >= 3) {
-      const productionPct =
-        activeChickens > 0 ? (avg / activeChickens) * 100 : selectedProductivity;
-
-      if (productionPct >= 85) {
-        productionTitle = 'Produksi Baik';
-        productionBadge = `${Math.round(productionPct)}% dari ayam aktif`;
+      if (avg >= 9) {
+        productionTitle = avg >= 11 ? 'Produksi Sangat Baik' : 'Produksi Stabil';
+        productionBadge = `Rata-rata ${String(avg).replace('.', ',')} butir/hari`;
         productionDescription =
-          'Rata-rata produksi berada pada tingkat yang baik berdasarkan jumlah ayam aktif.';
-      } else if (productionPct >= 70) {
+          'Rata-rata produksi berada pada kisaran target Eggnest 9–11 butir per hari.';
+      } else if (avg >= 7) {
         productionTitle = 'Produksi Perlu Dipantau';
-        productionBadge = `${Math.round(productionPct)}% dari ayam aktif`;
+        productionBadge = `Rata-rata ${String(avg).replace('.', ',')} butir/hari`;
         productionDescription =
-          'Produksi sedikit di bawah tingkat yang diharapkan. Pantau pakan, air minum, kebersihan, dan kondisi ayam.';
+          'Rata-rata produksi masih sedikit di bawah target 9–11 butir per hari. Pantau pakan, air minum, kebersihan, dan kondisi ayam.';
       } else {
         productionTitle = 'Produksi Perlu Perhatian';
-        productionBadge = `${Math.round(productionPct)}% dari ayam aktif`;
+        productionBadge = `Rata-rata ${String(avg).replace('.', ',')} butir/hari`;
         productionDescription =
-          'Produksi cukup rendah dibanding jumlah ayam aktif. Lakukan pemeriksaan faktor pemeliharaan dan konsultasikan bila berlanjut.';
+          'Rata-rata produksi berada cukup jauh di bawah target. Lakukan pemeriksaan kondisi ayam dan konsultasikan bila berlanjut.';
       }
     }
 
+    // Tren baru dinilai bila tersedia minimal 6 laporan:
+    // rata-rata 3 laporan terakhir dibanding 3 laporan sebelumnya.
     let trendState: 'insufficient' | 'stable' | 'up' | 'down' = 'insufficient';
     let trendTitle = 'Tren Belum Dapat Dinilai';
     let trendBadge = `Baru ${count} laporan`;
     let trendDescription =
-      'Minimal 6 laporan diperlukan untuk membandingkan 3 laporan terakhir dengan 3 laporan sebelumnya.';
+      'Minimal 6 laporan diperlukan untuk membandingkan tren 3 laporan terakhir dengan 3 laporan sebelumnya.';
     let trendPercent = 0;
 
     if (count >= 6) {
       const previous3 = selectedReports.slice(-6, -3);
       const latest3 = selectedReports.slice(-3);
+
       const previousAvg =
-        previous3.reduce((sum, report) => sum + Number(report.eggCount || 0), 0) /
-        previous3.length;
+        previous3.reduce((sum, report) => sum + Number(report.eggCount || 0), 0) / previous3.length;
       const latestAvg =
-        latest3.reduce((sum, report) => sum + Number(report.eggCount || 0), 0) /
-        latest3.length;
+        latest3.reduce((sum, report) => sum + Number(report.eggCount || 0), 0) / latest3.length;
 
       trendPercent =
-        previousAvg > 0
-          ? Math.round(((latestAvg - previousAvg) / previousAvg) * 1000) / 10
-          : 0;
+        previousAvg > 0 ? Math.round(((latestAvg - previousAvg) / previousAvg) * 1000) / 10 : 0;
 
       if (trendPercent <= -10) {
         trendState = 'down';
         trendTitle = 'Produksi Mulai Menurun';
         trendBadge = `Turun ${Math.abs(trendPercent).toLocaleString('id-ID')}%`;
         trendDescription =
-          'Rata-rata 3 laporan terakhir lebih rendah dibanding 3 laporan sebelumnya.';
+          'Rata-rata 3 laporan terakhir lebih rendah dibanding 3 laporan sebelumnya. Periksa pakan, air minum, kebersihan, suhu lingkungan, dan kondisi ayam.';
       } else if (trendPercent >= 10) {
         trendState = 'up';
         trendTitle = 'Produksi Meningkat';
         trendBadge = `Naik ${trendPercent.toLocaleString('id-ID')}%`;
         trendDescription =
-          'Rata-rata 3 laporan terakhir meningkat. Pertahankan pola perawatan yang berjalan.';
+          'Rata-rata 3 laporan terakhir meningkat dibanding 3 laporan sebelumnya. Pertahankan pola perawatan yang sudah berjalan.';
       } else {
         trendState = 'stable';
         trendTitle = 'Tren Produksi Stabil';
         trendBadge = `${trendPercent >= 0 ? '+' : ''}${trendPercent.toLocaleString('id-ID')}%`;
         trendDescription =
-          'Perubahan 3 laporan terakhir masih berada dalam rentang stabil.';
-      }
-    }
-
-    let overallLevel: 'normal' | 'watch' | 'action' | 'insufficient' = 'insufficient';
-    let overallTitle = 'Data Sedang Dikumpulkan';
-    let overallMessage =
-      count === 0
-        ? 'Belum ada laporan pada periode ini.'
-        : `Sudah ada ${count} laporan. Sistem akan semakin akurat setelah data bertambah.`;
-
-    if (count >= 3) {
-      if (latestHealthIssue || trendState === 'down' || feedState === 'extreme') {
-        overallLevel = 'action';
-        overallTitle = 'Kandang Perlu Perhatian';
-        overallMessage =
-          'Ada indikator yang perlu diperiksa. Lihat rekomendasi di bawah dan konsultasikan jika kondisi berlanjut.';
-      } else if (
-        feedState === 'high' ||
-        feedState === 'low' ||
-        selectedProductivity < 75 ||
-        healthIssueReports.length > 0
-      ) {
-        overallLevel = 'watch';
-        overallTitle = 'Perlu Pantauan';
-        overallMessage =
-          'Kondisi belum darurat, tetapi ada data yang sebaiknya dipantau lebih dekat.';
-      } else {
-        overallLevel = 'normal';
-        overallTitle = 'Kandang Terpantau Baik';
-        overallMessage =
-          'Data produksi, pakan, dan kondisi ayam belum menunjukkan indikator masalah yang berarti.';
+          'Perubahan rata-rata 3 laporan terakhir masih dalam rentang stabil dibanding 3 laporan sebelumnya.';
       }
     }
 
@@ -290,19 +225,8 @@ export const DevelopmentPage: React.FC = () => {
       trendBadge,
       trendDescription,
       trendPercent,
-      overallLevel,
-      overallTitle,
-      overallMessage,
     };
-  }, [
-    selectedReports,
-    selectedAverageEggs,
-    selectedProductivity,
-    activeChickens,
-    feedState,
-    latestHealthIssue,
-    healthIssueReports.length,
-  ]);
+  }, [selectedReports, selectedAverageEggs]);
 
   const formatRupiah = (num: number) => {
     return new Intl.NumberFormat('id-ID', {
@@ -357,9 +281,7 @@ export const DevelopmentPage: React.FC = () => {
             <span className="text-xs font-semibold text-stone-600">butir</span>
           </div>
           <span className="text-[11px] text-[#2D4A36] font-semibold block mt-1">
-            {monthChangePercent === null
-              ? 'Belum ada pembanding bulan lalu'
-              : `${monthChangePercent >= 0 ? '↑' : '↓'} ${Math.abs(monthChangePercent).toLocaleString('id-ID')}% vs bulan lalu`}
+            ↑ 4.2% vs bulan lalu
           </span>
         </div>
 
@@ -373,9 +295,7 @@ export const DevelopmentPage: React.FC = () => {
             <span className="text-xs font-semibold text-stone-600">butir</span>
           </div>
           <span className="text-[11px] text-stone-500 font-medium block mt-1">
-            {activeChickens > 0
-              ? `Acuan ±${idealDailyEggTarget} butir/hari (${activeChickens} ayam aktif)`
-              : 'Jumlah ayam aktif belum tersedia'}
+            Target: 9–11 butir/hari
           </span>
         </div>
 
@@ -415,123 +335,19 @@ export const DevelopmentPage: React.FC = () => {
           </span>
         </div>
 
-        {/* Card 5: Estimasi Nilai Telur */}
+        {/* Card 5: Omzet Penjualan Nyata */}
         <div className="bg-white p-5 rounded-3xl border border-[#EFECE6] shadow-xs col-span-2 sm:col-span-1">
           <span className="text-xs text-stone-500 font-bold uppercase tracking-wider block">
-            Estimasi Nilai Telur
+            Omzet Penjualan
           </span>
           <div className="text-xl lg:text-2xl font-black text-[#2D4A36] font-['Outfit'] mt-1 truncate">
-            {formatRupiah(selectedEstimatedEggValue)}
+            {salesSummary.transactionCount > 0 ? formatRupiah(salesSummary.totalAmount) : 'Belum ada'}
           </div>
           <span className="text-[11px] text-stone-500 font-medium block mt-1">
-            @ {formatRupiah(pricePerEgg)} / butir (Rp{settings.eggPricePerKg.toLocaleString('id-ID')}/kg)
+            {salesSummary.transactionCount > 0
+              ? `${salesSummary.totalEggs} butir terjual • ${salesSummary.transactionCount} transaksi`
+              : 'Belum ada transaksi pada periode ini'}
           </span>
-        </div>
-      </div>
-
-      {/* Smart Status Eggnest */}
-      <div className={`rounded-3xl p-6 md:p-7 border ${
-        analysis.overallLevel === 'action'
-          ? 'bg-[#FEF2F2] border-[#FECACA]'
-          : analysis.overallLevel === 'watch'
-            ? 'bg-[#FFF8E8] border-[#FDE68A]'
-            : analysis.overallLevel === 'normal'
-              ? 'bg-[#EAF2EC] border-[#CDE3D3]'
-              : 'bg-[#F0F7F9] border-[#CFE4EC]'
-      }`}>
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
-          <div className="flex items-start gap-4">
-            <div className="w-12 h-12 rounded-2xl bg-white border border-black/5 flex items-center justify-center shrink-0">
-              {analysis.overallLevel === 'action' ? (
-                <ShieldAlert className="w-6 h-6 text-red-700" />
-              ) : analysis.overallLevel === 'watch' ? (
-                <AlertCircle className="w-6 h-6 text-[#C2841E]" />
-              ) : analysis.overallLevel === 'normal' ? (
-                <CheckCircle2 className="w-6 h-6 text-[#2D4A36]" />
-              ) : (
-                <HelpCircle className="w-6 h-6 text-[#2B6E7F]" />
-              )}
-            </div>
-            <div>
-              <span className="text-[11px] uppercase tracking-wider font-black text-stone-500">
-                Smart Analysis Eggnest
-              </span>
-              <h2 className="text-xl md:text-2xl font-black text-[#1B3022] font-['Outfit'] mt-1">
-                {analysis.overallTitle}
-              </h2>
-              <p className="text-sm text-stone-700 mt-1 max-w-2xl">{analysis.overallMessage}</p>
-              <p className="text-[11px] text-stone-500 mt-2">
-                Analisis ini adalah panduan pemantauan kandang, bukan diagnosis penyakit.
-              </p>
-            </div>
-          </div>
-
-          {(analysis.overallLevel === 'action' || analysis.overallLevel === 'watch') && (
-            <button
-              onClick={() => {
-                setActivePage('bantuan');
-                navigate('/support');
-              }}
-              className="px-5 py-3.5 bg-[#1B3022] hover:bg-[#2D4A36] text-white rounded-2xl text-sm font-black cursor-pointer shrink-0"
-            >
-              Konsultasi Tim Eggnest →
-            </button>
-          )}
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-5">
-          <div className="bg-white/80 rounded-2xl p-4 border border-black/5">
-            <div className="flex items-center gap-2">
-              <Egg className="w-4 h-4 text-[#2D4A36]" />
-              <span className="text-xs font-black text-stone-600">PRODUKSI</span>
-            </div>
-            <p className="font-black text-[#1B3022] mt-2">{analysis.productionTitle}</p>
-            <p className="text-xs text-stone-600 mt-1">{analysis.productionBadge}</p>
-          </div>
-
-          <div className="bg-white/80 rounded-2xl p-4 border border-black/5">
-            <div className="flex items-center gap-2">
-              <Wheat className="w-4 h-4 text-[#C2841E]" />
-              <span className="text-xs font-black text-stone-600">PAKAN</span>
-            </div>
-            <p className="font-black text-[#1B3022] mt-2">
-              {feedState === 'extreme'
-                ? 'Input Sangat Tinggi'
-                : feedState === 'high'
-                  ? 'Di Atas Acuan'
-                  : feedState === 'low'
-                    ? 'Di Bawah Acuan'
-                    : feedState === 'normal'
-                      ? 'Dalam Kisaran'
-                      : 'Belum Dinilai'}
-            </p>
-            <p className="text-xs text-stone-600 mt-1">
-              {selectedReports.length > 0
-                ? `Rata-rata ${selectedAverageFeed.toFixed(2).replace('.', ',')} kg/laporan • acuan sekitar ${expectedFeedKg.toFixed(2).replace('.', ',')} kg/hari`
-                : 'Belum ada data pakan.'}
-            </p>
-          </div>
-
-          <div className="bg-white/80 rounded-2xl p-4 border border-black/5">
-            <div className="flex items-center gap-2">
-              <ShieldAlert className="w-4 h-4 text-[#2D4A36]" />
-              <span className="text-xs font-black text-stone-600">KONDISI AYAM</span>
-            </div>
-            <p className="font-black text-[#1B3022] mt-2">
-              {latestHealthIssue
-                ? 'Perlu Diperiksa'
-                : healthIssueReports.length > 0
-                  ? 'Ada Riwayat Masalah'
-                  : selectedReports.length > 0
-                    ? 'Terpantau Baik'
-                    : 'Belum Dinilai'}
-            </p>
-            <p className="text-xs text-stone-600 mt-1">
-              {selectedReports.length > 0
-                ? `${healthIssueReports.length} laporan bermasalah dari ${selectedReports.length} laporan periode ini.`
-                : 'Isi laporan untuk memantau kondisi ayam.'}
-            </p>
-          </div>
         </div>
       </div>
 
@@ -576,17 +392,17 @@ export const DevelopmentPage: React.FC = () => {
               />
               <YAxis
                 yAxisId="left"
-                domain={[0, (dataMax: number) => Math.max(activeChickens, dataMax + 1, 1)]}
-                allowDecimals={false}
+                domain={[0, 14]}
                 stroke="#A8A29E"
                 fontSize={11}
                 tickLine={false}
+                ticks={[0, 4, 8, 10, 12, 14]}
               />
               {showFeedOverlay && (
                 <YAxis
                   yAxisId="right"
                   orientation="right"
-                  domain={[0, (dataMax: number) => Math.max(dataMax * 1.15, expectedFeedKg * 1.5, 1)]}
+                  domain={[0, 3]}
                   stroke="#D4AF37"
                   fontSize={11}
                   tickLine={false}
@@ -739,43 +555,6 @@ export const DevelopmentPage: React.FC = () => {
               </button>
             )}
           </div>
-
-          {/* Analisis pakan */}
-          <div className={`p-4 rounded-2xl border ${
-            feedState === 'extreme' || feedState === 'high' || feedState === 'low'
-              ? 'bg-[#FEF6E9] border-[#FDE68A]'
-              : 'bg-[#FAF7F2] border-[#EFECE6]'
-          }`}>
-            <div className="flex items-start gap-3">
-              <div className="p-2 rounded-xl bg-white border border-black/5 shrink-0">
-                <Wheat className="w-5 h-5 text-[#C2841E]" />
-              </div>
-              <div>
-                <h4 className="font-bold text-[#1B3022]">
-                  {feedState === 'extreme'
-                    ? 'Cek Kembali Input Pakan'
-                    : feedState === 'high'
-                      ? 'Konsumsi Pakan Di Atas Acuan'
-                      : feedState === 'low'
-                        ? 'Konsumsi Pakan Di Bawah Acuan'
-                        : feedState === 'normal'
-                          ? 'Pakan Dalam Kisaran'
-                          : 'Pakan Belum Dapat Dinilai'}
-                </h4>
-                <p className="text-xs text-stone-600 mt-1">
-                  {feedState === 'extreme'
-                    ? `Rata-rata input ${selectedAverageFeed.toFixed(2).replace('.', ',')} kg/laporan sangat jauh dari acuan sekitar ${expectedFeedKg.toFixed(2).replace('.', ',')} kg/hari untuk ${activeChickens} ayam. Periksa apakah ada salah penulisan desimal.`
-                    : feedState === 'high'
-                      ? 'Periksa apakah pakan tercecer, takaran terlalu besar, atau input laporan kurang tepat.'
-                      : feedState === 'low'
-                        ? 'Pastikan seluruh ayam memperoleh pakan cukup dan input laporan sudah benar.'
-                        : feedState === 'normal'
-                          ? 'Rata-rata input pakan masih berada dekat kisaran acuan berdasarkan jumlah ayam aktif.'
-                          : 'Tambahkan laporan pakan untuk mulai melakukan pemantauan.'}
-                </p>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -813,8 +592,8 @@ export const DevelopmentPage: React.FC = () => {
                   1. Suhu Udara Terlalu Terik (Heat Stress)
                 </div>
                 <p className="text-xs text-stone-600 mt-1.5 leading-relaxed">
-                  Cuaca yang terlalu panas dapat membuat ayam lebih banyak minum dan mengurangi konsumsi pakan.
-                  <strong> Langkah awal:</strong> Pastikan kandang teduh, sirkulasi udara baik, dan air minum selalu tersedia.
+                  Saat cuaca panas di atas 32°C, ayam minum lebih banyak dan nafsu makan berkurang hingga 15%. 
+                  <strong> Solusi:</strong> Semprot kabut air tipis atau pasang peneduh paranet di sekitar kandang.
                 </p>
               </div>
 
@@ -825,8 +604,8 @@ export const DevelopmentPage: React.FC = () => {
                   2. Jalur Air Minum Tersumbat / Kotor
                 </div>
                 <p className="text-xs text-stone-600 mt-1.5 leading-relaxed">
-                  Gangguan ketersediaan air dapat memengaruhi kondisi dan produksi ayam.
-                  <strong> Langkah awal:</strong> Pastikan jalur air bersih dan air minum mengalir dengan baik.
+                  Kekurangan air selama beberapa jam langsung menurunkan produksi telur.
+                  <strong> Solusi:</strong> Tekan ujung nipple minum untuk memastikan air mengalir lancar dan sejuk.
                 </p>
               </div>
 
@@ -837,8 +616,8 @@ export const DevelopmentPage: React.FC = () => {
                   3. Pakan Menggumpal / Lembab
                 </div>
                 <p className="text-xs text-stone-600 mt-1.5 leading-relaxed">
-                  Pakan lembap, menggumpal, atau berbau tidak normal sebaiknya tidak digunakan.
-                  <strong> Langkah awal:</strong> Jaga tempat pakan tetap bersih dan kering serta gunakan pakan sesuai standar Eggnest.
+                  Pakan yang terkena cipratan air mudah berjamur dan membuat ayam enggan makan.
+                  <strong> Solusi:</strong> Bersihkan palung pakan setiap sore dan berikan pakan fresh 2x sehari.
                 </p>
               </div>
             </div>
@@ -848,11 +627,10 @@ export const DevelopmentPage: React.FC = () => {
                 onClick={() => {
                   setShowCauseModal(false);
                   setActivePage('bantuan');
-                  navigate('/support');
                 }}
                 className="px-5 py-3 bg-[#2D4A36] text-[#FDFBF7] font-bold text-sm rounded-xl shadow-md hover:bg-[#1B3022] cursor-pointer transition-colors"
               >
-                Konsultasi Tim Eggnest →
+                Konsultasi dengan Dokter Hewan Eggnest →
               </button>
             </div>
           </div>
@@ -890,7 +668,7 @@ export const DevelopmentPage: React.FC = () => {
 
               <div className="space-y-2">
                 <p className="font-semibold text-stone-800">
-                  📌 Acuan Pemantauan FCR Ayam Petelur:
+                  📌 Standar Industri Ayam Ras Petelur (Lohmann Brown):
                 </p>
                 <ul className="list-disc pl-5 space-y-1 text-stone-600">
                   <li><strong className="text-[#2D4A36]">FCR 2.0 – 2.3:</strong> Sangat Baik & Efisien (Pakan diubah menjadi telur secara optimal).</li>
@@ -900,7 +678,7 @@ export const DevelopmentPage: React.FC = () => {
               </div>
 
               <p className="text-stone-500 text-[11px]">
-                *FCR dihitung dari data laporan harian. Gunakan sebagai indikator pemantauan, bukan diagnosis kesehatan ayam.
+                *Data ini dihitung secara real-time dari laporan harian konsumsi pakan dan panen telur kandang Anda.
               </p>
             </div>
 

@@ -93,6 +93,39 @@ function initSchema(database: Database) {
       FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE SET NULL
     );
 
+    -- MITRA PENDAMPING MASTER
+    CREATE TABLE IF NOT EXISTS partners (
+      id TEXT PRIMARY KEY,
+      partner_code TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      phone TEXT,
+      address TEXT,
+      province TEXT,
+      regency TEXT,
+      district TEXT,
+      village TEXT,
+      latitude REAL,
+      longitude REAL,
+      service_radius_km REAL NOT NULL DEFAULT 10,
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'inactive')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+        -- MITRA PENDAMPING LOGIN ACCOUNT
+    -- Dipisahkan dari users agar database lama dengan CHECK role tetap kompatibel.
+    CREATE TABLE IF NOT EXISTS partner_accounts (
+      id TEXT PRIMARY KEY,
+      partner_id TEXT UNIQUE NOT NULL,
+      phone TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'inactive')),
+      last_login_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (partner_id) REFERENCES partners(id) ON DELETE CASCADE
+    );
+
     -- DAILY REPORTS TABLE (Unique constraint on farm_id + report_date)
     CREATE TABLE IF NOT EXISTS daily_reports (
       id TEXT PRIMARY KEY,
@@ -107,6 +140,11 @@ function initSchema(database: Database) {
       video_url TEXT,
       productivity_rate REAL NOT NULL DEFAULT 0.0,
       fcr REAL,
+      laying_chickens TEXT,
+      chicken_reports TEXT,
+      reported_by_id TEXT,
+      reported_by_name TEXT,
+      reported_by_role TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (farm_id) REFERENCES farms(id) ON DELETE CASCADE,
@@ -207,10 +245,43 @@ function initSchema(database: Database) {
 
     -- INDEXES FOR MAXIMUM QUERY PERFORMANCE
     CREATE INDEX IF NOT EXISTS idx_reports_farm_date ON daily_reports(farm_id, report_date);
+    CREATE INDEX IF NOT EXISTS idx_partners_status ON partners(status);
+    CREATE INDEX IF NOT EXISTS idx_partners_district ON partners(province, regency, district, village);
     CREATE INDEX IF NOT EXISTS idx_tickets_farm ON support_tickets(farm_id);
     CREATE INDEX IF NOT EXISTS idx_messages_ticket ON support_messages(ticket_id);
     CREATE INDEX IF NOT EXISTS idx_alerts_farm ON alerts(farm_id, status);
+    CREATE INDEX IF NOT EXISTS idx_partner_accounts_partner ON partner_accounts(partner_id);
   `);
+
+  // Territory + Mitra Pendamping columns are added safely for existing databases.
+  const farmColumns = new Set(queryAll<any>(database, `PRAGMA table_info(farms)`).map((r: any) => String(r.name)));
+  const farmAdditions: Array<[string, string]> = [
+    ['province', 'TEXT'],
+    ['regency', 'TEXT'],
+    ['district', 'TEXT'],
+    ['village', 'TEXT'],
+    ['partner_id', 'TEXT'],
+  ];
+  for (const [column, type] of farmAdditions) {
+    if (!farmColumns.has(column)) database.run(`ALTER TABLE farms ADD COLUMN ${column} ${type}`);
+  }
+  database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_farms_region ON farms(province, regency, district, village);
+    CREATE INDEX IF NOT EXISTS idx_farms_partner ON farms(partner_id);
+  `);
+
+  // Report operator columns are added safely for existing databases.
+  const reportColumns = new Set(queryAll<any>(database, `PRAGMA table_info(daily_reports)`).map((r: any) => String(r.name)));
+  const reportAdditions: Array<[string, string]> = [
+    ['laying_chickens', 'TEXT'],
+    ['chicken_reports', 'TEXT'],
+    ['reported_by_id', 'TEXT'],
+    ['reported_by_name', 'TEXT'],
+    ['reported_by_role', 'TEXT'],
+  ];
+  for (const [column, type] of reportAdditions) {
+    if (!reportColumns.has(column)) database.run(`ALTER TABLE daily_reports ADD COLUMN ${column} ${type}`);
+  }
 
   // Seed default settings and initial admin if empty
   seedInitialDefaults(database);

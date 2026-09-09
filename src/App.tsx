@@ -1,24 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import {
-  BrowserRouter,
-  Routes,
-  Route,
-  Navigate,
-  Outlet,
-  useLocation,
-} from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { FarmProvider, useFarm } from './context/FarmContext';
 import { Header } from './components/layout/Header';
 import { Sidebar } from './components/layout/Sidebar';
 import { BottomNav } from './components/layout/BottomNav';
 import { Toast } from './components/common/Toast';
-import { QuickReportModal } from './components/common/QuickReportModal';
 import { PATH_TO_PAGE, ActivePage } from './routes';
-
 import { LandingPage } from './pages/LandingPage';
 import { AuthPage } from './pages/AuthPage';
 import { HomePage } from './pages/HomePage';
 import { DailyReportPage } from './pages/DailyReportPage';
+import { EggSalesPage } from './pages/EggSalesPage';
 import { DevelopmentPage } from './pages/DevelopmentPage';
 import { AcademyPage } from './pages/AcademyPage';
 import { SupportPage } from './pages/SupportPage';
@@ -26,6 +18,12 @@ import { FarmScorePage } from './pages/FarmScorePage';
 import { FarmProfilePage } from './pages/FarmProfilePage';
 import { AdminPage } from './pages/AdminPage';
 import { ApiDocsPage } from './pages/ApiDocsPage';
+import { MitraDashboardPage } from './pages/MitraDashboardPage';
+import { MitraMembersPage } from './pages/MitraMembersPage';
+import { MitraReportsPage } from './pages/MitraReportsPage';
+import { MitraMonitoringPage } from './pages/MitraMonitoringPage';
+import { MitraFollowUpPage } from './pages/MitraFollowUpPage';
+import { MitraProfilePage } from './pages/MitraProfilePage';
 
 const PublicWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { textScale, setActivePage } = useFarm();
@@ -48,7 +46,7 @@ const PublicWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   );
 };
 
-const RequireSession: React.FC<{ role?: 'member' | 'admin' }> = ({ role }) => {
+const RequireSession: React.FC<{ role?: 'member' | 'admin' | 'mitra' }> = ({ role }) => {
   const { currentUser, isLoading } = useFarm();
   const location = useLocation();
 
@@ -65,7 +63,9 @@ const RequireSession: React.FC<{ role?: 'member' | 'admin' }> = ({ role }) => {
   }
 
   if (role && currentUser.role !== role) {
-    return <Navigate to={currentUser.role === 'admin' ? '/admin' : '/home'} replace />;
+    const target =
+      currentUser.role === 'admin' ? '/admin' : currentUser.role === 'mitra' ? '/mitra' : '/home';
+    return <Navigate to={target} replace />;
   }
 
   return <Outlet />;
@@ -91,8 +91,6 @@ const AppLayout: React.FC = () => {
       className={`min-h-screen bg-[#FDFBF7] text-[#1B3022] font-['Plus_Jakarta_Sans'] ${textSizeClass} flex flex-col selection:bg-[#EAF2EC]`}
     >
       <Toast />
-      {isMember && <QuickReportModal />}
-
       <Header
         isMobileMenuOpen={isMobileMenuOpen}
         onToggleMobileMenu={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
@@ -145,15 +143,30 @@ const AppRoutes: React.FC = () => (
         </PublicWrapper>
       }
     />
-    <Route path="/login" element={<Navigate to="/auth?mode=login" replace />} />
-    <Route path="/register" element={<Navigate to="/auth?mode=register" replace />} />
+    <Route path="/login" element={<Navigate to="/auth" replace />} />
+    <Route path="/register" element={<Navigate to="/auth" replace />} />
 
     <Route element={<RequireSession />}>
       <Route element={<AppLayout />}>
+        <Route element={<RequireSession role="mitra" />}>
+          <Route path="/mitra" element={<MitraDashboardPage />} />
+          <Route path="/mitra/members" element={<MitraMembersPage />} />
+          <Route path="/mitra/reports" element={<MitraReportsPage />} />
+          <Route path="/mitra/monitoring" element={<MitraMonitoringPage />} />
+          <Route path="/mitra/follow-up" element={<MitraFollowUpPage />} />
+          <Route path="/mitra/academy" element={<AcademyPage />} />
+          <Route path="/mitra/profile" element={<MitraProfilePage />} />
+
+          {/* Route lama diarahkan ke struktur Mitra final */}
+          <Route path="/mitra/attention" element={<Navigate to="/mitra/monitoring" replace />} />
+          <Route path="/mitra/support" element={<Navigate to="/mitra/follow-up" replace />} />
+        </Route>
+
         <Route element={<RequireSession role="member" />}>
           <Route path="/home" element={<HomePage />} />
           <Route path="/beranda" element={<Navigate to="/home" replace />} />
           <Route path="/reports" element={<DailyReportPage />} />
+          <Route path="/sales" element={<EggSalesPage />} />
           <Route path="/laporan" element={<Navigate to="/reports" replace />} />
           <Route path="/development" element={<DevelopmentPage />} />
           <Route path="/perkembangan" element={<Navigate to="/development" replace />} />

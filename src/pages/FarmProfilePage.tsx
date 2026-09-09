@@ -1,411 +1,89 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import QRCode from 'qrcode';
+import { api } from '../services/api';
 import { useFarm } from '../context/FarmContext';
-import {
-  Warehouse,
-  QrCode,
-  ShieldCheck,
-  Calendar,
-  MapPin,
-  User,
-  Activity,
-  Layers,
-  Sparkles,
-  Download,
-  Printer,
-  Copy,
-  CheckCircle2,
-  Award,
-  ExternalLink,
-  Pencil,
-  Navigation,
-  X,
-  Save,
-  AlertTriangle,
-} from 'lucide-react';
+import { Activity, Award, Calendar, CheckCircle2, Copy, Download, ExternalLink, Layers, MapPin, Navigation, Pencil, Printer, QrCode, Save, ShieldCheck, Sparkles, User, Warehouse, X } from 'lucide-react';
 
-const CHICKEN_TYPE_OPTIONS = [
-  'Ayam Petelur Cokelat',
-  'Ayam Petelur Putih',
-  'Ayam Kampung Petelur',
-  'Ayam Arab Petelur',
-  'Ayam Joper',
-  'Ayam Petelur Lainnya',
-] as const;
-
-const hasCompleteFarmData = (farm: any): boolean => {
-  const location = String(farm?.location ?? '').trim();
-  const locationKey = location.toLowerCase();
-  const validLocation = location.length > 0 && locationKey !== 'indonesia' && !locationKey.includes('belum');
-  const fullAddress = String(farm?.fullAddress ?? '').trim();
-  const hasLatitude = farm?.latitude !== null && farm?.latitude !== undefined && farm?.latitude !== '' && Number.isFinite(Number(farm.latitude));
-  const hasLongitude = farm?.longitude !== null && farm?.longitude !== undefined && farm?.longitude !== '' && Number.isFinite(Number(farm.longitude));
-  const breed = String(farm?.chickenBreed ?? '').trim();
-  const chickens = Number(farm?.activeChickens ?? 0);
-  const age = Number(farm?.currentAgeWeeks ?? 0);
-  return validLocation && fullAddress.length > 0 && hasLatitude && hasLongitude && breed.length > 0 && chickens > 0 && age > 0;
-};
+const CHICKEN_TYPE_OPTIONS = ['Ayam Petelur Cokelat', 'Ayam Petelur Putih', 'Ayam Kampung Petelur', 'Ayam Arab Petelur', 'Ayam Joper', 'Ayam Petelur Lainnya'];
+const hasCompleteFarmData = (farm: any) => Boolean(String(farm?.location || '').trim() && String(farm?.fullAddress || '').trim() && Number.isFinite(Number(farm?.latitude)) && Number.isFinite(Number(farm?.longitude)) && String(farm?.chickenBreed || '').trim() && Number(farm?.activeChickens) > 0 && Number(farm?.currentAgeWeeks) > 0);
 
 export const FarmProfilePage: React.FC = () => {
   const navigate = useNavigate();
-  const {
-    farm,
-    farmScore,
-    reports,
-    chickenCurrentAgeWeeks,
-    setActivePage,
-    showToast,
-    updateMyFarm,
-  } = useFarm();
-
+  const { farm, farmScore, reports, chickenCurrentAgeWeeks, setActivePage, showToast, updateMyFarm } = useFarm();
   const [qrDataUrl, setQrDataUrl] = useState('');
-  const [isEditing, setIsEditing] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isGettingGps, setIsGettingGps] = useState(false);
-
-  const [location, setLocation] = useState('');
-  const [fullAddress, setFullAddress] = useState('');
-  const [latitude, setLatitude] = useState<number | null>(null);
-  const [longitude, setLongitude] = useState<number | null>(null);
-  const [chickenBreed, setChickenBreed] = useState('');
-  const [activeChickens, setActiveChickens] = useState(0);
-  const [currentAgeWeeks, setCurrentAgeWeeks] = useState(0);
-
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [gpsLoading, setGpsLoading] = useState(false);
+  const [addressEditing, setAddressEditing] = useState(false);
+  const [form, setForm] = useState<any>({ location: '', fullAddress: '', province: '', regency: '', district: '', village: '', latitude: null, longitude: null, chickenBreed: '', activeChickens: 12, currentAgeWeeks: 18 });
   const dataComplete = hasCompleteFarmData(farm);
   const farmScoreReady = reports.length >= 7;
 
-  const syncForm = () => {
-    const rawLocation = String(farm.location ?? '').trim();
-    setLocation(
-      !rawLocation || rawLocation.toLowerCase() === 'indonesia' || rawLocation.toLowerCase().includes('belum')
-        ? ''
-        : rawLocation
-    );
-    setFullAddress(String(farm.fullAddress ?? ''));
-    setLatitude(farm.latitude == null || farm.latitude === '' ? null : Number(farm.latitude));
-    setLongitude(farm.longitude == null || farm.longitude === '' ? null : Number(farm.longitude));
-    setChickenBreed(String(farm.chickenBreed ?? '') || 'Ayam Petelur Cokelat');
-    setActiveChickens(Number(farm.activeChickens ?? 0));
-    setCurrentAgeWeeks(Number(chickenCurrentAgeWeeks || farm.currentAgeWeeks || 0));
-  };
-
-  useEffect(() => {
-    syncForm();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [farm.id, farm.location, farm.fullAddress, farm.latitude, farm.longitude, farm.chickenBreed, farm.activeChickens, farm.currentAgeWeeks, chickenCurrentAgeWeeks]);
-
-  useEffect(() => {
-    if (!farm?.farmCode) return;
-    const payload = `${window.location.origin}/farm?code=${encodeURIComponent(farm.farmCode)}`;
-    QRCode.toDataURL(payload, {
-      width: 300,
-      margin: 2,
-      color: { dark: '#1B3022', light: '#FFFFFF' },
-    })
-      .then(setQrDataUrl)
-      .catch((err) => console.error('Error generating QR code:', err));
-  }, [farm?.farmCode]);
-
-  const copyFarmCode = () => {
-    if (!farm.farmCode) return;
-    navigator.clipboard.writeText(farm.farmCode);
-    showToast(`📋 Farm ID ${farm.farmCode} disalin.`);
-  };
+  const syncForm = () => setForm({
+    location: String(farm.location || ''), fullAddress: String(farm.fullAddress || ''), province: String((farm as any).province || ''), regency: String((farm as any).regency || farm.location || ''), district: String((farm as any).district || ''), village: String((farm as any).village || ''),
+    latitude: farm.latitude == null ? null : Number(farm.latitude), longitude: farm.longitude == null ? null : Number(farm.longitude), chickenBreed: String(farm.chickenBreed || 'Ayam Petelur Cokelat'), activeChickens: Number(farm.activeChickens || 12), currentAgeWeeks: Number(chickenCurrentAgeWeeks || farm.currentAgeWeeks || 18),
+  });
+  useEffect(() => { syncForm(); }, [farm.id, farm.location, farm.fullAddress, farm.latitude, farm.longitude, farm.chickenBreed, farm.activeChickens, farm.currentAgeWeeks, chickenCurrentAgeWeeks]);
+  useEffect(() => { if (!farm.farmCode) return; QRCode.toDataURL(`${window.location.origin}/farm?code=${encodeURIComponent(farm.farmCode)}`, { width: 300, margin: 2, color: { dark: '#1B3022', light: '#FFFFFF' } }).then(setQrDataUrl).catch(console.error); }, [farm.farmCode]);
 
   const captureGps = () => {
-    if (!navigator.geolocation) {
-      showToast('⚠️ Browser/perangkat ini tidak mendukung GPS.');
-      return;
-    }
-    setIsGettingGps(true);
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setLatitude(position.coords.latitude);
-        setLongitude(position.coords.longitude);
-        setIsGettingGps(false);
-        showToast('📍 Titik GPS berhasil diambil.');
-      },
-      (error) => {
-        setIsGettingGps(false);
-        showToast(
-          error.code === error.PERMISSION_DENIED
-            ? '⚠️ Izin lokasi ditolak. Aktifkan izin lokasi pada browser.'
-            : '⚠️ Lokasi belum berhasil didapatkan. Silakan coba lagi.'
-        );
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-    );
+    if (!navigator.geolocation) return showToast('⚠️ Browser/perangkat ini tidak mendukung GPS.');
+    setGpsLoading(true);
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      const latitude = Number(pos.coords.latitude.toFixed(7)); const longitude = Number(pos.coords.longitude.toFixed(7));
+      setForm((x: any) => ({ ...x, latitude, longitude }));
+      try {
+        const res = await api.reverseGeocode(latitude, longitude);
+        const loc = res.location;
+        setForm((x: any) => ({ ...x, latitude, longitude, fullAddress: loc.fullAddress || x.fullAddress, location: loc.regency || loc.city || x.location, province: loc.province || '', regency: loc.regency || loc.city || '', district: loc.district || '', village: loc.village || '' }));
+        setAddressEditing(false);
+        showToast('📍 Lokasi dan alamat kandang berhasil diambil otomatis.');
+      } catch (e: any) {
+        showToast('📍 Titik GPS berhasil diambil. Alamat otomatis belum tersedia, Anda boleh mengedit alamat manual.');
+        setAddressEditing(true);
+      } finally { setGpsLoading(false); }
+    }, (error) => { setGpsLoading(false); showToast(error.code === error.PERMISSION_DENIED ? '⚠️ Izin lokasi ditolak. Aktifkan izin lokasi browser.' : '⚠️ Lokasi belum berhasil didapatkan.'); }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
   };
 
-  const saveProfile = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!location.trim()) return showToast('⚠️ Kabupaten/Kota wajib diisi.');
-    if (!fullAddress.trim()) return showToast('⚠️ Alamat lengkap wajib diisi.');
-    if (latitude == null || longitude == null) return showToast('⚠️ Ambil titik GPS terlebih dahulu.');
-    if (!chickenBreed.trim()) return showToast('⚠️ Jenis ayam wajib dipilih.');
-    if (!Number.isInteger(activeChickens) || activeChickens < 1) return showToast('⚠️ Jumlah ayam aktif minimal 1 ekor.');
-    if (!Number.isFinite(currentAgeWeeks) || currentAgeWeeks < 1) return showToast('⚠️ Usia ayam wajib diisi.');
-
-    setIsSaving(true);
+  const saveProfile = async () => {
+    if (form.latitude == null || form.longitude == null) return showToast('⚠️ Tekan Ambil Lokasi Kandang terlebih dahulu.');
+    if (!String(form.fullAddress).trim()) return showToast('⚠️ Alamat kandang belum tersedia.');
+    if (!String(form.location).trim()) return showToast('⚠️ Kabupaten/Kota belum tersedia.');
+    setSaving(true);
     try {
-      const result = await updateMyFarm({
-        location: location.trim(),
-        fullAddress: fullAddress.trim(),
-        latitude,
-        longitude,
-        chickenBreed: chickenBreed.trim(),
-        activeChickens,
-        currentAgeWeeks,
-      });
-      if (result.success) setIsEditing(false);
-    } finally {
-      setIsSaving(false);
-    }
+      const result = await updateMyFarm({ location: String(form.location).trim(), fullAddress: String(form.fullAddress).trim(), latitude: Number(form.latitude), longitude: Number(form.longitude), chickenBreed: String(form.chickenBreed).trim(), activeChickens: Number(form.activeChickens), currentAgeWeeks: Number(form.currentAgeWeeks), province: form.province, regency: form.regency, district: form.district, village: form.village } as any);
+      if (result.success) setEditing(false);
+    } finally { setSaving(false); }
   };
 
-  const downloadQr = () => {
-    if (!qrDataUrl) return showToast('⚠️ QR Code belum siap.');
-    const link = document.createElement('a');
-    link.href = qrDataUrl;
-    link.download = `QR-FARM-${farm.farmCode}.png`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
+  const copyFarmCode = () => { if (farm.farmCode) { navigator.clipboard.writeText(farm.farmCode); showToast(`📋 Farm ID ${farm.farmCode} disalin.`); } };
+  const downloadQr = () => { if (!qrDataUrl) return; const a = document.createElement('a'); a.href = qrDataUrl; a.download = `QR-FARM-${farm.farmCode}.png`; a.click(); };
+  const printQr = () => { if (!qrDataUrl) return; const w = window.open('', '_blank'); if (!w) return; w.document.write(`<!doctype html><html><body style="font-family:Arial;text-align:center;padding:40px"><h2>EGGNEST FARM HUB</h2><img width="240" src="${qrDataUrl}"/><h2>${farm.farmCode}</h2><p>${farm.ownerName || ''}</p><script>window.onload=()=>window.print()</script></body></html>`); w.document.close(); };
 
-  const printQr = () => {
-    if (!qrDataUrl) return showToast('⚠️ QR Code belum siap.');
-    const win = window.open('', '_blank');
-    if (!win) return;
-    win.document.write(`<!doctype html><html><head><title>QR Farm ${farm.farmCode}</title><style>body{font-family:Arial;text-align:center;padding:40px;color:#1B3022}.card{border:2px solid #2D4A36;border-radius:16px;max-width:360px;margin:auto;padding:24px}.code{font-size:22px;font-weight:800;letter-spacing:2px}img{width:220px;height:220px}</style></head><body><div class="card"><h2>EGGNEST FARM HUB</h2><img src="${qrDataUrl}"/><div class="code">${farm.farmCode}</div><p>${farm.ownerName || 'Mitra'}</p></div><script>window.onload=()=>window.print()</script></body></html>`);
-    win.document.close();
-  };
+  return <div className="space-y-6 sm:space-y-8 pb-24 md:pb-12">
+    <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4"><div><span className="px-3 py-1 bg-[#EAF2EC] text-[#1B3022] text-xs font-bold rounded-full border">Kandang Milik Member</span><h1 className="text-2xl md:text-4xl font-extrabold text-[#1B3022] mt-1">Profil Kandang</h1><p className="text-stone-600 text-sm mt-1">Lokasi otomatis dari GPS, data kandang tetap bisa dikoreksi bila diperlukan.</p></div><button onClick={() => { syncForm(); setEditing(true); }} className="px-5 py-3 rounded-2xl bg-[#1B3022] text-white font-black flex items-center justify-center gap-2"><Pencil className="w-4 h-4 text-[#D4AF37]" /> Edit Data Kandang</button></div>
 
-  return (
-    <div className="space-y-6 sm:space-y-8 pb-12 animate-in fade-in duration-200">
-      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
-        <div>
-          <span className="px-3 py-1 bg-[#EAF2EC] text-[#1B3022] text-xs font-bold rounded-full border border-[#CDE3D3]">
-            Identitas Digital Kemitraan
-          </span>
-          <h1 className="text-2xl md:text-3xl lg:text-4xl font-extrabold text-[#1B3022] font-['Outfit'] tracking-tight mt-1">
-            Profil Kandang
-          </h1>
-          <p className="text-stone-600 text-sm font-medium mt-1">Identitas Farm ID, data kandang, lokasi, dan QR verifikasi.</p>
-        </div>
-        <button
-          onClick={() => { syncForm(); setIsEditing(true); }}
-          className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-[#1B3022] hover:bg-[#2D4A36] text-white text-sm font-black shadow-sm"
-        >
-          <Pencil className="w-4 h-4 text-[#D4AF37]" /> Edit Data Kandang
-        </button>
-      </div>
+    {!dataComplete && <div className="rounded-3xl border-2 border-[#E5B52B] bg-[#FFF8E8] p-5 flex flex-col sm:flex-row gap-4 sm:items-center sm:justify-between"><div><h2 className="font-black">Lengkapi Lokasi Kandang</h2><p className="text-sm text-stone-600 mt-1">Cukup tekan “Ambil Lokasi Kandang”. Alamat akan diisi otomatis dari titik GPS.</p></div><button onClick={() => { syncForm(); setEditing(true); setTimeout(captureGps, 100); }} className="px-5 py-3 rounded-2xl bg-[#D4AF37] font-black">📍 Ambil Lokasi</button></div>}
 
-      {!dataComplete && (
-        <div className="rounded-3xl border-2 border-[#E5B52B] bg-[#FFF8E8] p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="w-6 h-6 text-[#A16207] shrink-0 mt-0.5" />
-            <div>
-              <h2 className="font-black text-[#1B3022]">Data Kandang Belum Lengkap</h2>
-              <p className="text-sm text-stone-600 mt-1">Lengkapi lokasi, GPS, jenis ayam, jumlah ayam, dan usia ayam agar Laporan Harian aktif.</p>
-            </div>
-          </div>
-          <button onClick={() => navigate('/reports')} className="px-5 py-3 rounded-2xl bg-[#D4AF37] text-[#1B3022] font-black text-sm whitespace-nowrap">
-            Aktifkan di Laporan →
-          </button>
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <div className="lg:col-span-8 bg-white rounded-3xl border border-[#EFECE6] shadow-xs p-6 md:p-8 space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#EFECE6] pb-5">
-            <div className="flex items-center gap-4">
-              <div className="w-16 h-16 rounded-2xl bg-[#1B3022] flex items-center justify-center shadow-md"><Warehouse className="w-8 h-8 text-[#D4AF37]" /></div>
-              <div>
-                <span className="text-xs text-stone-500 font-bold uppercase tracking-wider">Farm ID Resmi</span>
-                <div className="flex items-center gap-2">
-                  <h2 className="text-2xl md:text-3xl font-black text-[#1B3022] font-['Outfit']">{farm.farmCode || '-'}</h2>
-                  <button onClick={copyFarmCode} className="p-2 rounded-lg hover:bg-[#FAF7F2]"><Copy className="w-4 h-4 text-stone-500" /></button>
-                </div>
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <span className="bg-[#EAF2EC] text-[#1B3022] text-xs font-black px-3.5 py-1.5 rounded-full border border-[#CDE3D3]">✓ KEMITRAAN AKTIF</span>
-              <span className={`text-xs font-black px-3.5 py-1.5 rounded-full border ${dataComplete ? 'bg-[#EAF2EC] text-[#1B3022] border-[#CDE3D3]' : 'bg-[#FFF8E8] text-[#A16207] border-[#E5B52B]'}`}>
-                {dataComplete ? '✓ SIAP LAPOR' : '⚠ DATA BELUM LENGKAP'}
-              </span>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Info icon={<User className="w-4 h-4" />} label="Pemilik Kandang" value={farm.ownerName || '-'} />
-            <Info icon={<MapPin className="w-4 h-4" />} label="Kabupaten / Kota" value={dataComplete ? farm.location : 'Belum dilengkapi'} muted={!dataComplete} />
-            <Info icon={<Calendar className="w-4 h-4" />} label="Tanggal Aktivasi Kemitraan" value={farm.activationDate || '-'} />
-            <Info icon={<Layers className="w-4 h-4" />} label="Jenis Ayam" value={farm.chickenBreed || 'Belum diisi'} muted={!farm.chickenBreed} />
-            <Info icon={<Activity className="w-4 h-4" />} label="Jumlah Ayam Aktif" value={farm.activeChickens > 0 ? `${farm.activeChickens} ekor` : 'Belum diisi'} muted={!farm.activeChickens} />
-            <Info icon={<Sparkles className="w-4 h-4" />} label="Usia Ayam Saat Ini" value={chickenCurrentAgeWeeks > 0 ? `${chickenCurrentAgeWeeks} minggu` : 'Belum diisi'} muted={!chickenCurrentAgeWeeks} />
-          </div>
-
-          {dataComplete && (
-            <div className="p-5 rounded-2xl bg-[#F7F4EE] border border-[#E5E1D8] space-y-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <span className="text-xs font-bold text-stone-500 uppercase tracking-wider">Lokasi Kandang</span>
-                  <p className="text-sm font-black text-[#1B3022] mt-0.5">Terverifikasi untuk laporan harian</p>
-                </div>
-                <span className="inline-flex items-center gap-1 rounded-full bg-[#EAF2EC] border border-[#CDE3D3] px-3 py-1 text-[11px] font-black text-[#1B3022]"><CheckCircle2 className="w-3.5 h-3.5" /> AKTIF</span>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="rounded-xl bg-white border border-[#EFECE6] p-4">
-                  <span className="text-xs font-semibold text-stone-500">Alamat Lengkap</span>
-                  <p className="text-sm font-bold text-[#1B3022] mt-1 leading-relaxed">{farm.fullAddress}</p>
-                </div>
-                <div className="rounded-xl bg-white border border-[#EFECE6] p-4">
-                  <span className="text-xs font-semibold text-stone-500">Titik GPS</span>
-                  <p className="text-sm font-bold text-[#1B3022] mt-1">{Number(farm.latitude).toFixed(6)}, {Number(farm.longitude).toFixed(6)}</p>
-                  <button
-                    onClick={() => window.open(`https://www.google.com/maps?q=${farm.latitude},${farm.longitude}`, '_blank', 'noopener,noreferrer')}
-                    className="mt-2 inline-flex items-center gap-1.5 text-xs font-bold text-[#2D4A36]"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" /> Buka Google Maps
-                  </button>
-                </div>
-              </div>
-
-              <div className="rounded-2xl overflow-hidden bg-white border border-[#E5E1D8]">
-                <div className="px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-[#EFECE6]">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-xl bg-[#EAF2EC] flex items-center justify-center">
-                      <MapPin className="w-4 h-4 text-[#2D4A36]" />
-                    </div>
-                    <div>
-                      <p className="text-xs font-black text-[#1B3022] uppercase tracking-wider">Peta Lokasi Kandang</p>
-                      <p className="text-[11px] text-stone-500">Titik berdasarkan GPS Farm ID {farm.farmCode}</p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => window.open(`https://www.google.com/maps?q=${farm.latitude},${farm.longitude}`, '_blank', 'noopener,noreferrer')}
-                    className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-[#1B3022] text-white text-xs font-black hover:bg-[#2D4A36]"
-                  >
-                    <Navigation className="w-3.5 h-3.5 text-[#D4AF37]" />
-                    Buka Google Maps
-                  </button>
-                </div>
-
-                <div className="relative w-full h-[220px] sm:h-[260px] bg-[#EAF2EC]">
-                  <iframe
-                    title={`Lokasi kandang ${farm.farmCode}`}
-                    src={`https://maps.google.com/maps?q=${encodeURIComponent(`${farm.latitude},${farm.longitude}`)}&z=17&output=embed`}
-                    className="absolute inset-0 w-full h-full border-0"
-                    loading="lazy"
-                    referrerPolicy="no-referrer-when-downgrade"
-                    allowFullScreen
-                  />
-                </div>
-
-                <div className="px-4 py-3 bg-[#FDFBF7] flex items-start gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-[#2D4A36] shrink-0 mt-0.5" />
-                  <p className="text-[11px] sm:text-xs text-stone-600">
-                    Lokasi ditampilkan dari koordinat GPS yang tersimpan pada profil kandang.
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div className="p-5 rounded-2xl bg-[#EAF2EC] border border-[#CDE3D3] flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-[#2D4A36]"><ShieldCheck className="w-6 h-6 text-[#D4AF37]" /></div>
-            <div>
-              <span className="text-xs font-bold text-[#1B3022] uppercase">Status Garansi Kemitraan</span>
-              <p className="text-base font-black text-[#1B3022]">{farm.warrantyEnd || 'Mengikuti ketentuan paket Eggnest'}</p>
-            </div>
-          </div>
-
-          <div className="p-5 rounded-2xl bg-[#FAF7F2] border border-[#EFECE6] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-xl bg-[#2D4A36] text-white flex items-center justify-center font-black text-lg">{farmScoreReady ? farmScore.totalScore : '—'}</div>
-              <div>
-                <span className="text-xs font-bold text-stone-500 uppercase tracking-wider">Farm Score</span>
-                <p className="text-base font-black text-[#1B3022]">{farmScoreReady ? farmScore.statusText : `Mengumpulkan Data (${reports.length}/7)`}</p>
-              </div>
-            </div>
-            <button onClick={() => { setActivePage('score'); navigate('/score'); }} className="px-4 py-2.5 bg-[#2D4A36] text-white font-bold text-xs rounded-xl inline-flex items-center gap-1.5"><Award className="w-4 h-4 text-[#D4AF37]" /> Lihat Farm Score →</button>
-          </div>
-        </div>
-
-        <div className="lg:col-span-4 bg-white rounded-3xl border border-[#EFECE6] shadow-xs p-6 md:p-8 flex flex-col justify-between items-center text-center">
-          <div className="w-full space-y-4">
-            <div className="flex items-center justify-between"><span className="text-xs font-bold text-stone-500 uppercase">Kartu Digital</span><span className="text-xs font-black text-[#1B3022] bg-[#EAF2EC] px-2.5 py-0.5 rounded-full border border-[#CDE3D3]">QR FARM</span></div>
-            <div className="p-4 bg-[#FAF7F2] rounded-3xl border-2 border-dashed border-[#E5E1D8] flex flex-col items-center">
-              <div className="w-52 h-52 bg-white rounded-2xl p-2.5 flex items-center justify-center shadow-md border border-[#EFECE6]">
-                {qrDataUrl ? <img src={qrDataUrl} alt={`QR ${farm.farmCode}`} className="w-full h-full object-contain rounded-xl" /> : <QrCode className="w-12 h-12 text-stone-400 animate-pulse" />}
-              </div>
-              <span className="text-sm font-black text-[#1B3022] mt-3 tracking-wider">{farm.farmCode}</span>
-              <p className="text-[11px] text-stone-500 mt-1">Scan untuk verifikasi Farm ID Eggnest</p>
-            </div>
-          </div>
-          <div className="w-full pt-4 space-y-2">
-            <button onClick={printQr} className="w-full py-3 bg-[#2D4A36] text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2"><Printer className="w-4 h-4" /> Cetak QR Code</button>
-            <button onClick={downloadQr} className="w-full py-2.5 bg-[#FAF7F2] text-[#1B3022] font-bold text-xs rounded-xl border border-[#EFECE6] flex items-center justify-center gap-2"><Download className="w-4 h-4" /> Unduh PNG</button>
-          </div>
-        </div>
-      </div>
-
-      {isEditing && (
-        <div className="fixed inset-0 z-50 bg-black/45 backdrop-blur-[1px] p-3 sm:p-6 flex items-center justify-center" onMouseDown={(e) => { if (e.target === e.currentTarget) setIsEditing(false); }}>
-          <div className="w-full max-w-3xl max-h-[92vh] overflow-y-auto bg-white rounded-3xl shadow-2xl border border-[#EFECE6]">
-            <div className="sticky top-0 bg-white z-10 flex items-center justify-between gap-4 px-5 sm:px-7 py-5 border-b border-[#EFECE6]">
-              <div><h2 className="text-xl sm:text-2xl font-black text-[#1B3022]">Edit Data Kandang</h2><p className="text-xs sm:text-sm text-stone-500">Farm ID dan data administrasi tetap dikunci oleh Eggnest.</p></div>
-              <button onClick={() => setIsEditing(false)} className="p-2 rounded-xl hover:bg-[#FAF7F2]"><X className="w-5 h-5" /></button>
-            </div>
-            <form onSubmit={saveProfile} className="p-5 sm:p-7 space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                <Field label="Kabupaten / Kota *"><input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Contoh: Kabupaten Klaten" className="field" /></Field>
-                <Field label="Alamat Lengkap Kandang *"><textarea rows={4} value={fullAddress} onChange={(e) => setFullAddress(e.target.value)} placeholder="Dusun/Desa, RT/RW, Kecamatan, Kabupaten/Kota, Provinsi" className="field resize-none" /></Field>
-                <Field label="Titik GPS *">
-                  <button type="button" onClick={captureGps} disabled={isGettingGps} className="w-full min-h-12 rounded-2xl bg-[#1B3022] text-white font-black flex items-center justify-center gap-2 disabled:opacity-60"><Navigation className="w-4 h-4 text-[#D4AF37]" /> {isGettingGps ? 'Mengambil Lokasi...' : latitude != null && longitude != null ? 'Ambil Ulang GPS' : 'Ambil Lokasi Saya'}</button>
-                  {latitude != null && longitude != null && <p className="text-xs font-bold text-[#2D4A36] mt-2">{latitude.toFixed(6)}, {longitude.toFixed(6)}</p>}
-                </Field>
-                <Field label="Jenis Ayam *">
-                  <select value={chickenBreed} onChange={(e) => setChickenBreed(e.target.value)} className="field">
-                    {!CHICKEN_TYPE_OPTIONS.includes(chickenBreed as any) && chickenBreed && (
-                      <option value={chickenBreed}>{chickenBreed}</option>
-                    )}
-                    {CHICKEN_TYPE_OPTIONS.map((type) => (
-                      <option key={type} value={type}>
-                        {type === 'Ayam Petelur Cokelat' ? `${type} — utama paket Eggnest` : type}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-[11px] font-semibold text-stone-500 mt-2">Ayam pada paket utama Eggnest termasuk kategori ayam petelur cokelat.</p>
-                </Field>
-                <Field label="Jumlah Ayam Aktif *"><input type="number" min={1} max={1000} value={activeChickens || ''} onChange={(e) => setActiveChickens(Number(e.target.value))} className="field" /></Field>
-                <Field label="Usia Ayam Saat Ini *"><input type="number" min={1} max={200} value={currentAgeWeeks || ''} onChange={(e) => setCurrentAgeWeeks(Number(e.target.value))} className="field" /></Field>
-              </div>
-              <div className="rounded-2xl bg-[#FAF7F2] border border-[#EFECE6] p-4 text-xs text-stone-600">Usia yang Anda simpan menjadi patokan baru. Sistem akan menambah usia otomatis setiap 7 hari.</div>
-              <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
-                <button type="button" onClick={() => setIsEditing(false)} className="px-5 py-3 rounded-2xl border border-[#D9D4C8] font-bold text-stone-700">Batal</button>
-                <button type="submit" disabled={isSaving || isGettingGps} className="px-6 py-3 rounded-2xl bg-[#D4AF37] text-[#1B3022] font-black flex items-center justify-center gap-2 disabled:opacity-60"><Save className="w-4 h-4" /> {isSaving ? 'Menyimpan...' : 'Simpan Perubahan'}</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      <style>{`.field{width:100%;padding:.875rem 1rem;border-radius:1rem;border:1px solid #D9D4C8;background:#FDFBF7;color:#1B3022;font-weight:700;outline:none}.field:focus{box-shadow:0 0 0 2px #2D4A36}`}</style>
+    <div className="grid lg:grid-cols-12 gap-6"><div className="lg:col-span-8 bg-white rounded-3xl border p-6 md:p-8 space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b pb-5"><div className="flex items-center gap-4"><div className="w-16 h-16 rounded-2xl bg-[#1B3022] flex items-center justify-center"><Warehouse className="w-8 h-8 text-[#D4AF37]" /></div><div><span className="text-xs text-stone-500 font-bold">FARM ID RESMI</span><div className="flex items-center gap-2"><h2 className="text-2xl md:text-3xl font-black">{farm.farmCode || '-'}</h2><button onClick={copyFarmCode}><Copy className="w-4 h-4" /></button></div></div></div><span className={`text-xs font-black px-3 py-1.5 rounded-full border ${dataComplete ? 'bg-[#EAF2EC] text-[#1B3022]' : 'bg-[#FFF8E8] text-[#A16207]'}`}>{dataComplete ? '✓ SIAP LAPOR' : '⚠ BELUM LENGKAP'}</span></div>
+      <div className="grid sm:grid-cols-2 gap-4"><Info icon={<User />} label="Pemilik Kandang" value={farm.ownerName || '-'} /><Info icon={<MapPin />} label="Kabupaten / Kota" value={farm.location || 'Belum diambil'} /><Info icon={<Calendar />} label="Tanggal Aktivasi" value={farm.activationDate || '-'} /><Info icon={<Layers />} label="Jenis Ayam" value={farm.chickenBreed || '-'} /><Info icon={<Activity />} label="Jumlah Ayam Aktif" value={`${farm.activeChickens || 0} ekor`} /><Info icon={<Sparkles />} label="Usia Ayam" value={`${chickenCurrentAgeWeeks || 0} minggu`} /></div>
+      {farm.latitude != null && farm.longitude != null && <div className="rounded-2xl overflow-hidden border"><div className="p-4 bg-[#F7F4EE]"><div className="font-black">📍 Lokasi Kandang</div><p className="text-sm text-stone-600 mt-1">{farm.fullAddress || farm.location}</p><button onClick={() => window.open(`https://www.google.com/maps?q=${farm.latitude},${farm.longitude}`, '_blank')} className="mt-2 text-xs font-black text-[#2D4A36] flex items-center gap-1"><ExternalLink className="w-3 h-3" /> Buka Google Maps</button></div><div className="h-[240px] relative"><iframe title="Lokasi kandang" src={`https://maps.google.com/maps?q=${farm.latitude},${farm.longitude}&z=17&output=embed`} className="absolute inset-0 w-full h-full border-0" loading="lazy" /></div></div>}
+      <div className="p-5 rounded-2xl bg-[#EAF2EC] border flex items-center gap-3"><ShieldCheck className="w-7 h-7 text-[#2D4A36]" /><div><span className="text-xs font-bold">STATUS GARANSI</span><p className="font-black">{farm.warrantyEnd || 'Mengikuti ketentuan paket Eggnest'}</p></div></div>
+      <div className="p-5 rounded-2xl bg-[#FAF7F2] border flex justify-between items-center gap-3"><div><span className="text-xs font-bold text-stone-500">FARM SCORE</span><p className="font-black">{farmScoreReady ? `${farmScore.totalScore} • ${farmScore.statusText}` : `Mengumpulkan Data (${reports.length}/7)`}</p></div><button onClick={() => { setActivePage('score'); navigate('/score'); }} className="px-4 py-2.5 bg-[#2D4A36] text-white rounded-xl font-bold text-xs flex gap-1"><Award className="w-4 h-4" /> Lihat</button></div>
     </div>
-  );
+    <div className="lg:col-span-4 bg-white rounded-3xl border p-6 flex flex-col items-center"><div className="w-full flex justify-between"><span className="text-xs font-bold text-stone-500">KARTU DIGITAL</span><span className="text-xs font-black">QR FARM</span></div><div className="mt-5 w-56 h-56 bg-[#FAF7F2] rounded-3xl p-3 flex items-center justify-center">{qrDataUrl ? <img src={qrDataUrl} alt="QR Farm" className="w-full h-full" /> : <QrCode className="w-12 h-12" />}</div><div className="font-black mt-3">{farm.farmCode}</div><div className="w-full mt-6 space-y-2"><button onClick={printQr} className="w-full py-3 rounded-xl bg-[#2D4A36] text-white font-bold flex justify-center gap-2"><Printer className="w-4 h-4" /> Cetak QR</button><button onClick={downloadQr} className="w-full py-3 rounded-xl border font-bold flex justify-center gap-2"><Download className="w-4 h-4" /> Unduh PNG</button></div></div></div>
+
+    {editing && <div className="fixed inset-0 z-[130] bg-black/50 overflow-y-auto"><div className="min-h-full p-3 sm:p-6 flex items-start justify-center"><div className="w-full max-w-3xl bg-white rounded-3xl overflow-hidden my-3"><div className="sticky top-0 bg-white z-10 px-5 py-4 border-b flex justify-between"><div><h2 className="text-xl font-black">Edit Data Kandang</h2><p className="text-xs text-stone-500">Farm ID dan Mitra Pendamping tetap dikunci oleh sistem.</p></div><button onClick={() => setEditing(false)}><X /></button></div><div className="p-5 sm:p-7 space-y-6">
+      <div className="rounded-2xl bg-[#EAF2EC] border p-4"><h3 className="font-black">Lokasi Kandang</h3><p className="text-xs text-stone-600 mt-1">Tidak perlu mengetik alamat dari awal. Ambil GPS, sistem akan mengisi alamat otomatis.</p><button type="button" onClick={captureGps} disabled={gpsLoading} className="mt-3 w-full min-h-14 rounded-2xl bg-[#1B3022] text-white font-black flex items-center justify-center gap-2 disabled:opacity-60"><Navigation className="w-5 h-5 text-[#D4AF37]" /> {gpsLoading ? 'Mengambil GPS & Alamat...' : form.latitude != null ? 'Ambil Ulang Lokasi Kandang' : 'Ambil Lokasi Kandang'}</button>{form.latitude != null && <div className="mt-3 rounded-xl bg-white border p-3"><div className="text-xs font-black text-[#2D4A36]">✓ Titik ditemukan</div><div className="text-xs text-stone-500 mt-1">{form.latitude}, {form.longitude}</div><p className="text-sm font-bold mt-2">{form.fullAddress || 'Alamat belum ditemukan otomatis'}</p><button type="button" onClick={() => setAddressEditing(!addressEditing)} className="mt-2 text-xs font-black text-[#2D4A36]">{addressEditing ? 'Selesai Edit Alamat' : 'Edit Alamat jika kurang tepat'}</button></div>}</div>
+      {addressEditing && <div className="space-y-3"><Field label="Kabupaten / Kota"><input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value, regency: e.target.value })} className="field" /></Field><Field label="Alamat / Patokan Tambahan"><textarea rows={3} value={form.fullAddress} onChange={(e) => setForm({ ...form, fullAddress: e.target.value })} className="field resize-none" placeholder="Boleh tambahkan RT/RW, nomor rumah atau patokan" /></Field></div>}
+      <div className="grid sm:grid-cols-3 gap-4"><Field label="Jenis Ayam"><select value={form.chickenBreed} onChange={(e) => setForm({ ...form, chickenBreed: e.target.value })} className="field">{CHICKEN_TYPE_OPTIONS.map((x) => <option key={x}>{x}</option>)}</select></Field><Field label="Jumlah Ayam Aktif"><input type="number" min="1" value={form.activeChickens} onChange={(e) => setForm({ ...form, activeChickens: Number(e.target.value) })} className="field" /></Field><Field label="Usia Ayam (minggu)"><input type="number" min="1" value={form.currentAgeWeeks} onChange={(e) => setForm({ ...form, currentAgeWeeks: Number(e.target.value) })} className="field" /></Field></div>
+    </div><div className="sticky bottom-0 bg-white border-t p-4 flex gap-3"><button onClick={() => setEditing(false)} className="flex-1 min-h-12 rounded-2xl border font-bold">Batal</button><button onClick={saveProfile} disabled={saving || gpsLoading} className="flex-[2] min-h-12 rounded-2xl bg-[#D4AF37] text-[#1B3022] font-black flex justify-center items-center gap-2 disabled:opacity-60"><Save className="w-4 h-4" /> {saving ? 'Menyimpan...' : 'Simpan Perubahan'}</button></div></div></div></div>}
+    <style>{`.field{width:100%;padding:.875rem 1rem;border-radius:1rem;border:1px solid #D9D4C8;background:#FDFBF7;color:#1B3022;font-weight:700;outline:none}`}</style>
+  </div>;
 };
 
-const Info: React.FC<{ icon: React.ReactNode; label: string; value: React.ReactNode; muted?: boolean }> = ({ icon, label, value, muted }) => (
-  <div className="p-4 rounded-2xl bg-[#FAF7F2] border border-[#EFECE6]">
-    <span className="text-xs text-stone-500 font-semibold flex items-center gap-1.5"><span className="text-[#2D4A36]">{icon}</span>{label}</span>
-    <p className={`text-base font-bold mt-1 ${muted ? 'text-stone-400' : 'text-[#1B3022]'}`}>{value}</p>
-  </div>
-);
-
-const Field: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
-  <div className="space-y-2"><label className="text-sm font-black text-[#1B3022]">{label}</label>{children}</div>
-);
+const Info = ({ icon, label, value }: any) => <div className="p-4 rounded-2xl bg-[#FAF7F2] border"><span className="text-xs text-stone-500 font-semibold flex items-center gap-1.5"><span className="text-[#2D4A36] [&>svg]:w-4 [&>svg]:h-4">{icon}</span>{label}</span><p className="text-base font-bold mt-1 text-[#1B3022]">{value}</p></div>;
+const Field = ({ label, children }: any) => <label className="space-y-2 block"><span className="text-sm font-black text-[#1B3022]">{label}</span>{children}</label>;
+export default FarmProfilePage;

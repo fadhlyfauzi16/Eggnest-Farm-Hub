@@ -34,7 +34,7 @@ export type ActivePage =
 export type TextScale = 'normal' | 'large' | 'xlarge';
 
 interface LoginParams {
-  role: 'member' | 'admin';
+  role: 'member' | 'admin' | 'mitra';
   phone?: string;
   identifier?: string;
   password?: string;
@@ -97,6 +97,8 @@ interface FarmContextType {
     feedKg: number;
     chickenCondition: ChickenCondition;
     issueTypes?: IssueType[];
+    layingChickens?: number[];
+    chickenReports?: Array<{ chickenNumber: number; condition: 'HEALTHY' | 'SICK' | 'DEAD'; problemTypes?: string[]; customNotes?: string }>;
     notes?: string;
     photoUrl?: string;
     videoUrl?: string;
@@ -118,6 +120,7 @@ interface FarmContextType {
     farmCode?: string;
     ownerName?: string;
     phone?: string;
+    password?: string;
     location?: string;
     purchaseDate?: string;
     fullAddress?: string;
@@ -126,6 +129,7 @@ interface FarmContextType {
     initialChickens?: number;
     chickenBreed?: string;
     initialAgeWeeks?: number;
+    partnerId?: string | null;
   }) => Promise<Farm | null>;
   updateFarm: (farmId: string, farmData: Partial<Farm>) => Promise<void>;
   updateMyFarm: (farmData: {
@@ -209,6 +213,8 @@ const normalizeUser = (raw: any): User =>
     role: raw?.role ?? 'member',
     status: raw?.status ?? 'active',
     farmId: raw?.farmId ?? raw?.farm_id ?? undefined,
+    partnerId: raw?.partnerId ?? raw?.partner_id ?? undefined,
+    partnerCode: raw?.partnerCode ?? raw?.partner_code ?? undefined,
     createdAt: raw?.createdAt ?? raw?.created_at ?? undefined,
     updatedAt: raw?.updatedAt ?? raw?.updated_at ?? undefined,
   } as User);
@@ -221,6 +227,14 @@ const normalizeFarm = (raw: any): Farm =>
     ownerName: String(raw?.ownerName ?? raw?.owner_name ?? ''),
     phone: String(raw?.phone ?? ''),
     location: String(raw?.location ?? ''),
+    province: String(raw?.province ?? ''),
+    regency: String(raw?.regency ?? ''),
+    district: String(raw?.district ?? ''),
+    village: String(raw?.village ?? ''),
+    partnerId: raw?.partnerId ?? raw?.partner_id ?? null,
+    partnerCode: String(raw?.partnerCode ?? raw?.partner_code ?? ''),
+    partnerName: String(raw?.partnerName ?? raw?.partner_name ?? ''),
+    partnerPhone: String(raw?.partnerPhone ?? raw?.partner_phone ?? ''),
     purchaseDate: String(raw?.purchaseDate ?? raw?.purchase_date ?? ''),
     fullAddress: String(raw?.fullAddress ?? raw?.full_address ?? ''),
     latitude:
@@ -336,6 +350,19 @@ const normalizeReport = (raw: any): DailyReport =>
     videoUrl: raw?.videoUrl ?? raw?.video_url ?? undefined,
     productivityRate: Number(raw?.productivityRate ?? raw?.productivity_rate ?? 0),
     fcr: raw?.fcr == null ? null : Number(raw.fcr),
+    layingChickens:
+      raw?.layingChickens ??
+      (typeof raw?.laying_chickens === 'string'
+        ? (() => { try { const x = JSON.parse(raw.laying_chickens); return Array.isArray(x) ? x.map(Number) : []; } catch { return []; } })()
+        : raw?.laying_chickens ?? []),
+    chickenReports:
+      raw?.chickenReports ??
+      (typeof raw?.chicken_reports === 'string'
+        ? (() => { try { const x = JSON.parse(raw.chicken_reports); return Array.isArray(x) ? x : []; } catch { return []; } })()
+        : raw?.chicken_reports ?? []),
+    reportedById: raw?.reportedById ?? raw?.reported_by_id ?? undefined,
+    reportedByName: raw?.reportedByName ?? raw?.reported_by_name ?? undefined,
+    reportedByRole: raw?.reportedByRole ?? raw?.reported_by_role ?? undefined,
     createdAt: raw?.createdAt ?? raw?.created_at ?? undefined,
     updatedAt: raw?.updatedAt ?? raw?.updated_at ?? undefined,
   } as DailyReport);
@@ -463,6 +490,45 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setCurrentFarm(EMPTY_FARM);
         setFarms([]);
         setAllReports([]);
+        return;
+      }
+
+      if (sessionUser.role === 'mitra') {
+        try {
+          const mitraRes = await api.getMitraDashboard();
+          setFarms((mitraRes.farms || []).map(normalizeFarm));
+        } catch {
+          setFarms([]);
+        }
+
+        // Mitra tidak memiliki satu currentFarm tetap. Ia bekerja pada banyak Farm ID binaan.
+        setCurrentFarm(EMPTY_FARM);
+
+        try {
+          const reportsRes = await api.getReports();
+          setAllReports(reportsRes.success ? (reportsRes.reports || []).map(normalizeReport) : []);
+        } catch {
+          setAllReports([]);
+        }
+
+        try {
+          const ticketsRes = await api.getTickets();
+          setTickets(ticketsRes.success ? (ticketsRes.tickets || []).map(normalizeSupportTicket) : []);
+        } catch {
+          setTickets([]);
+        }
+
+        // Academy adalah satu sumber konten dari Admin dan dapat dibaca Member maupun Mitra.
+        try {
+          const acadRes = await api.getAcademy(false);
+          setAcademyContents(acadRes.success ? (acadRes.contents || []).map(normalizeAcademyContent) : []);
+        } catch {
+          setAcademyContents([]);
+        }
+
+        setNotifications([]);
+        setAdminAlerts([]);
+        setAdminLogs([]);
         return;
       }
 
@@ -836,6 +902,8 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         if (normalizedUser.role === 'admin') {
           setActivePage('admin');
+        } else if (normalizedUser.role === 'mitra') {
+          setActivePage('beranda');
         } else {
           setActivePage('beranda');
         }
@@ -904,6 +972,13 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
     feedKg: number;
     chickenCondition: ChickenCondition;
     issueTypes?: IssueType[];
+    layingChickens?: number[];
+    chickenReports?: Array<{
+      chickenNumber: number;
+      condition: 'HEALTHY' | 'SICK' | 'DEAD';
+      problemTypes?: string[];
+      customNotes?: string;
+    }>;
     notes?: string;
     photoUrl?: string;
     videoUrl?: string;
@@ -987,6 +1062,7 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
     farmCode?: string;
     ownerName?: string;
     phone?: string;
+    password?: string;
     location?: string;
     purchaseDate?: string;
     fullAddress?: string;
@@ -995,6 +1071,7 @@ export const FarmProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initialChickens?: number;
     chickenBreed?: string;
     initialAgeWeeks?: number;
+    partnerId?: string | null;
   }) => {
     try {
       const res = await api.createFarm(farmData);

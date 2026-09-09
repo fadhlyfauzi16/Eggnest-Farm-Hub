@@ -10,7 +10,6 @@ import {
   ZoomIn,
   Menu,
   X,
-  Plus,
   LogOut,
 } from 'lucide-react';
 
@@ -31,7 +30,6 @@ export const Header: React.FC<HeaderProps> = ({
     markNotificationRead,
     markAllNotificationsRead,
     setActivePage,
-    setIsQuickReportOpen,
     textScale,
     setTextScale,
   } = useFarm();
@@ -57,6 +55,11 @@ export const Header: React.FC<HeaderProps> = ({
     if (currentUser?.role === 'admin') {
       setActivePage('admin');
       navigate('/admin');
+      return;
+    }
+    if (currentUser?.role === 'mitra') {
+      setActivePage('beranda');
+      navigate('/mitra');
       return;
     }
     setActivePage('beranda');
@@ -129,20 +132,7 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Right Controls */}
       <div className="flex items-center gap-2 md:gap-3">
-        {/* Quick Report Button for Mobile/Tablet */}
-        {currentUser?.role === 'member' && (
-          <button
-            type="button"
-            id="mobile-header-quick-report-btn"
-            onClick={() => setIsQuickReportOpen(true)}
-            className="md:hidden bg-[#2D4A36] hover:bg-[#1B3022] text-white px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1 shadow-xs active:scale-95 cursor-pointer touch-manipulation min-h-[36px]"
-          >
-            <Plus className="w-4 h-4" />
-            Lapor
-          </button>
-        )}
-
-        {/* Text Zoom Button */}
+{/* Text Zoom Button */}
         <button
           type="button"
           id="header-text-scale-btn"
@@ -251,6 +241,9 @@ export const Header: React.FC<HeaderProps> = ({
               if (currentUser?.role === 'admin') {
                 setActivePage('admin');
                 navigate('/admin');
+              } else if (currentUser?.role === 'mitra') {
+                setActivePage('profil');
+                navigate('/mitra/profile');
               } else {
                 setActivePage('profil');
                 navigate('/profile');
@@ -261,7 +254,7 @@ export const Header: React.FC<HeaderProps> = ({
               {currentUser?.fullName || 'Pengguna'}
             </span>
             <span className="text-[10px] text-stone-500 font-medium mt-0.5">
-              {currentUser?.role === 'admin' ? 'Administrator' : 'Member'}
+              {currentUser?.role === 'admin' ? 'Administrator' : currentUser?.role === 'mitra' ? 'Mitra Pendamping' : 'Member'}
             </span>
           </div>
 

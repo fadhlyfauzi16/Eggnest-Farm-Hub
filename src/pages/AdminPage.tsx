@@ -34,6 +34,9 @@ import {
   Upload,
   Download,
   FileSpreadsheet,
+  MapPin,
+  Users,
+  KeyRound,
 } from 'lucide-react';
 import { SupportStatus, SupportTicket, AcademyCategory } from '../types';
 
@@ -79,6 +82,8 @@ export const AdminPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedTab = searchParams.get('tab');
   const initialAdminTab =
+    requestedTab === 'mitra' ||
+    requestedTab === 'sales' ||
     requestedTab === 'alerts' ||
     requestedTab === 'tickets' ||
     requestedTab === 'academy' ||
@@ -86,13 +91,13 @@ export const AdminPage: React.FC = () => {
       ? requestedTab
       : 'kandang';
 
-  const [activeTab, setActiveTab] = useState<'kandang' | 'alerts' | 'tickets' | 'academy' | 'pengaturan'>(
+  const [activeTab, setActiveTab] = useState<'kandang' | 'mitra' | 'sales' | 'alerts' | 'tickets' | 'academy' | 'pengaturan'>(
     initialAdminTab
   );
 
   useEffect(() => {
     const tab = searchParams.get('tab');
-    if (tab === 'alerts' || tab === 'tickets' || tab === 'academy' || tab === 'pengaturan') {
+    if (tab === 'mitra' || tab === 'sales' || tab === 'alerts' || tab === 'tickets' || tab === 'academy' || tab === 'pengaturan') {
       setActiveTab(tab);
     } else {
       setActiveTab('kandang');
@@ -100,8 +105,37 @@ export const AdminPage: React.FC = () => {
   }, [searchParams]);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'warning' | 'critical' | 'unclaimed'>('all');
+  const [partners, setPartners] = useState<any[]>([]);
+  const [provinceFilter, setProvinceFilter] = useState('all');
+  const [regencyFilter, setRegencyFilter] = useState('all');
+  const [districtFilter, setDistrictFilter] = useState('all');
+  const [villageFilter, setVillageFilter] = useState('all');
+  const [partnerFilter, setPartnerFilter] = useState('all');
+  const [partnerForm, setPartnerForm] = useState<any>({ partnerCode:'', name:'', phone:'', password:'' });
+  const [savingPartner, setSavingPartner] = useState(false);
   const [selectedFarmModal, setSelectedFarmModal] = useState<any | null>(null);
   const [selectedReportPhoto, setSelectedReportPhoto] = useState<any | null>(null);
+  const [eggSales, setEggSales] = useState<any[]>([]);
+  const [salesSummary, setSalesSummary] = useState<any>({ transactionCount:0,totalEggs:0,totalWeightKg:0,totalAmount:0,averagePricePerKg:0 });
+  const [salesMonth, setSalesMonth] = useState(
+    new Intl.DateTimeFormat('en-CA', { timeZone:'Asia/Jakarta', year:'numeric', month:'2-digit' }).format(new Date()).slice(0,7)
+  );
+  const [salesFarmFilter, setSalesFarmFilter] = useState('all');
+
+  const loadEggSales = async (month = salesMonth, farmId = salesFarmFilter) => {
+    try {
+      const res = await api.getEggSales({ month, farmId: farmId === 'all' ? undefined : farmId });
+      setEggSales(res.sales || []);
+      setSalesSummary(res.summary || {});
+    } catch (e:any) {
+      showToast(e?.message || 'Gagal memuat penjualan telur.');
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'sales') loadEggSales();
+  }, [activeTab, salesMonth, salesFarmFilter]);
+
 
   // Ticket chat modal state
   const [selectedTicket, setSelectedTicket] = useState<SupportTicket | null>(null);
@@ -115,6 +149,7 @@ export const AdminPage: React.FC = () => {
   const [newFarmPhone, setNewFarmPhone] = useState('');
   const [newFarmLocation, setNewFarmLocation] = useState('');
   const [newFarmChickens, setNewFarmChickens] = useState(12);
+  const [newFarmPartnerId, setNewFarmPartnerId] = useState('');
 
   // Excel import / export
   type ImportType = 'members' | 'farms' | 'chickens' | 'reports';
@@ -144,6 +179,12 @@ export const AdminPage: React.FC = () => {
   // Settings local state
   const [localSettings, setLocalSettings] = useState(settings);
 
+  useEffect(() => {
+    api.getPartners().then((r) => setPartners(r.partners || [])).catch(() => setPartners([]));
+  }, []);
+
+  const refreshPartners = async () => { const r = await api.getPartners(); setPartners(r.partners || []); };
+
   // Normalize backend farm rows so admin UI supports snake_case and camelCase safely
   const normalizedFarms = farms.map((farm: any) => ({
     ...farm,
@@ -151,6 +192,8 @@ export const AdminPage: React.FC = () => {
     ownerName: String(farm.ownerName ?? farm.owner_name ?? ''),
     phone: String(farm.phone ?? ''),
     location: String(farm.location ?? ''),
+    province: String(farm.province ?? ''), regency: String(farm.regency ?? ''), district: String(farm.district ?? ''), village: String(farm.village ?? ''),
+    partnerId: farm.partnerId ?? farm.partner_id ?? null, partnerCode: String(farm.partnerCode ?? farm.partner_code ?? ''), partnerName: String(farm.partnerName ?? farm.partner_name ?? ''),
     status: farm.status ?? 'unclaimed',
     activeChickens: Number(farm.activeChickens ?? farm.active_chickens ?? 0),
     currentAgeWeeks: Number(farm.currentAgeWeeks ?? farm.current_age_weeks ?? 0),
@@ -165,8 +208,13 @@ export const AdminPage: React.FC = () => {
       f.ownerName.toLowerCase().includes(normalizedSearch) ||
       f.location.toLowerCase().includes(normalizedSearch);
 
-    if (statusFilter === 'all') return matchSearch;
-    return matchSearch && f.status === statusFilter;
+    const matchStatus = statusFilter === 'all' || f.status === statusFilter;
+    const matchProvince = provinceFilter === 'all' || f.province === provinceFilter;
+    const matchRegency = regencyFilter === 'all' || f.regency === regencyFilter;
+    const matchDistrict = districtFilter === 'all' || f.district === districtFilter;
+    const matchVillage = villageFilter === 'all' || f.village === villageFilter;
+    const matchPartner = partnerFilter === 'all' || (partnerFilter === 'none' ? !f.partnerId : f.partnerId === partnerFilter);
+    return matchSearch && matchStatus && matchProvince && matchRegency && matchDistrict && matchVillage && matchPartner;
   });
 
   // Calculate high-level system metrics
@@ -191,20 +239,108 @@ export const AdminPage: React.FC = () => {
       : 0;
 
   const handleContactMember = (name: string, phone: string) => {
-    showToast(`📱 Menghubungi ${name} (${phone}) via WhatsApp...`);
+    const cleanPhone = String(phone || '').replace(/\D/g, '');
+    if (!cleanPhone) {
+      showToast(`⚠️ Nomor WhatsApp ${name || 'Member'} belum tersedia.`);
+      return;
+    }
+
+    const waNumber = cleanPhone.startsWith('0')
+      ? `62${cleanPhone.slice(1)}`
+      : cleanPhone.startsWith('62')
+        ? cleanPhone
+        : cleanPhone;
+
+    const message = encodeURIComponent(
+      `Halo ${name || 'Member'}, kami dari Admin Eggnest Farm Hub ingin menindaklanjuti kondisi kandang Anda.`
+    );
+    window.open(`https://wa.me/${waNumber}?text=${message}`, '_blank', 'noopener,noreferrer');
+  };
+
+  const findFarmForAlert = (alert: any) =>
+    normalizedFarms.find(
+      (farm: any) =>
+        String(farm.id) === String(alert?.farmId ?? alert?.farm_id ?? '') ||
+        String(farm.farmCode) === String(alert?.farmCode ?? alert?.farm_code ?? '')
+    );
+
+  const handleContactAlertMember = (alert: any) => {
+    const farm = findFarmForAlert(alert);
+    handleContactMember(
+      farm?.ownerName || alert?.ownerName || 'Member',
+      farm?.phone || ''
+    );
+  };
+
+  const handleOpenAlertFarm = (alert: any) => {
+    const farm = findFarmForAlert(alert);
+    if (!farm) {
+      showToast('⚠️ Data Farm ID untuk alert ini tidak ditemukan.');
+      return;
+    }
+    setSelectedFarmModal(farm);
+  };
+
+  const uniqueValues = (key: 'province'|'regency'|'district'|'village') => Array.from(new Set(normalizedFarms.map((f:any)=>String(f[key]||'')).filter(Boolean))).sort();
+
+
+
+  const makePartnerCode = (name: string) => {
+    const words = String(name || '').toUpperCase().replace(/[^A-Z0-9 ]/g, ' ').trim().split(/\s+/).filter(Boolean);
+    const base = (words.length > 1 ? words.map((w) => w[0]).join('') : (words[0] || 'MITRA').slice(0, 6)).slice(0, 6);
+    return `MTR-${base || 'MITRA'}`;
+  };
+
+  const openFarmMap = (f: any) => {
+    const lat = Number(f?.latitude);
+    const lng = Number(f?.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      showToast('⚠️ Lokasi GPS Member belum tersimpan.');
+      return;
+    }
+    window.open(`https://www.google.com/maps?q=${lat},${lng}`, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleCreatePartner = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setSavingPartner(true);
+      const payload = {
+        ...partnerForm,
+        partnerCode: String(partnerForm.partnerCode || makePartnerCode(partnerForm.name)).trim().toUpperCase(),
+      };
+      const r = await api.createPartner(payload);
+      showToast(r.message);
+      setPartnerForm({ partnerCode:'', name:'', phone:'', password:'' });
+      await refreshPartners();
+    } catch(err:any) {
+      showToast(err?.message || 'Gagal membuat Mitra Marketing');
+    } finally {
+      setSavingPartner(false);
+    }
+  };
+
+  const handleDeletePartner = async (p:any) => {
+    if(!window.confirm(`Hapus Mitra Marketing ${p.name}?`)) return;
+    try { const r=await api.deletePartner(p.id); showToast(r.message); await refreshPartners(); } catch(err:any){ showToast(err?.message || 'Gagal menghapus Mitra Marketing'); }
   };
 
   const handleCreateFarm = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      if (!newFarmPartnerId) {
+        showToast('⚠️ Pilih Mitra Marketing untuk Member ini terlebih dahulu.');
+        return;
+      }
       const res = await api.createFarm({
         farmCode: newFarmCode.trim() || undefined,
         ownerName: newFarmOwner.trim(),
         phone: newFarmPhone.trim(),
-        location: newFarmLocation.trim() || 'Paket Belum Diaktivasi (Tersedia)',
+        location: 'Lokasi menunggu GPS Member',
         initialChickens: newFarmChickens,
         chickenBreed: 'Layer Lohmann Brown Petelur Unggul',
         initialAgeWeeks: 18,
+        partnerId: newFarmPartnerId,
       });
 
       showToast(`${res.message} Kode aktivasi: ${String((res.farm as any)?.farmCode ?? (res.farm as any)?.farm_code ?? '')}`);
@@ -213,6 +349,7 @@ export const AdminPage: React.FC = () => {
       setNewFarmOwner('');
       setNewFarmPhone('');
       setNewFarmLocation('');
+      setNewFarmPartnerId('');
       window.setTimeout(() => window.location.reload(), 500);
     } catch (err: any) {
       showToast(err?.message || 'Gagal membuat Farm ID');
@@ -222,7 +359,7 @@ export const AdminPage: React.FC = () => {
   const handleExportExcel = async () => {
     try {
       setIsExporting(true);
-      await api.downloadExportExcel(exportType);
+      await api.downloadExportExcel(exportType, { province: provinceFilter, regency: regencyFilter, district: districtFilter, village: villageFilter, partnerId: partnerFilter });
       showToast(`Export ${exportType} berhasil diunduh`);
     } catch (err: any) {
       showToast(err?.message || 'Gagal export Excel');
@@ -349,7 +486,7 @@ Ketik HAPUS untuk melanjutkan.`
 
   const handleSendTicketReply = () => {
     if (!selectedTicket || !replyMessage.trim()) return;
-    replyTicketMessage(selectedTicket.id, replyMessage.trim(), 'veterinarian');
+    replyTicketMessage(selectedTicket.id, replyMessage.trim());
     setReplyMessage('');
     // refresh modal
     const updated = tickets.find((t) => t.id === selectedTicket.id);
@@ -365,13 +502,13 @@ Ketik HAPUS untuk melanjutkan.`
             <span className="bg-[#D4AF37] text-[#1B3022] text-xs font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider font-['Outfit']">
               ADMINISTRATOR
             </span>
-            <span className="text-xs text-[#EAF2EC]/80">Pusat Manajemen Jaringan Peternakan</span>
+            <span className="text-xs text-[#EAF2EC]/80">Pusat Operasional & Penanganan Member</span>
           </div>
           <h1 className="text-2xl md:text-3xl lg:text-4xl font-extrabold font-['Outfit'] tracking-tight mt-1 text-[#FDFBF7]">
             EGGNEST CONTROL CENTER
           </h1>
           <p className="text-[#EAF2EC]/90 text-xs md:text-sm font-medium mt-1">
-            Monitoring seluruh kandang aktif, sistem peringatan dini, manajemen tiket bantuan, dan edukasi.
+            Admin menerima laporan Member, menangani masalah kandang, membalas konsultasi, dan memantau seluruh Farm ID.
           </p>
         </div>
 
@@ -456,10 +593,12 @@ Ketik HAPUS untuk melanjutkan.`
       <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar border-b border-[#EFECE6] pb-2 w-full">
         {[
           { id: 'kandang', label: 'Kandang & Member', icon: Warehouse, count: normalizedFarms.length },
-          { id: 'alerts', label: 'Smart Alerts', icon: ShieldAlert, count: adminAlerts.filter((a) => !a.resolved).length },
+          { id: 'mitra', label: 'Mitra Marketing', icon: Users, count: partners.length },
+          { id: 'sales', label: 'Penjualan Telur', icon: Egg, count: eggSales.length },
+          { id: 'alerts', label: 'Masalah Kandang', icon: ShieldAlert, count: adminAlerts.filter((a) => !a.resolved).length },
           { id: 'tickets', label: 'Tiket Bantuan', icon: Headphones, count: tickets.filter((t) => t.status !== 'Selesai').length },
           { id: 'academy', label: 'Academy', icon: BookOpen, count: academyContents.length },
-          { id: 'pengaturan', label: 'Pengaturan', icon: Settings },
+          { id: 'pengaturan', label: 'Operasional', icon: Activity },
         ].map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -467,7 +606,7 @@ Ketik HAPUS untuk melanjutkan.`
             <button
               key={tab.id}
               onClick={() => {
-                const nextTab = tab.id as 'kandang' | 'alerts' | 'tickets' | 'academy' | 'pengaturan';
+                const nextTab = tab.id as 'kandang' | 'mitra' | 'sales' | 'alerts' | 'tickets' | 'academy' | 'pengaturan';
                 setActiveTab(nextTab);
                 if (nextTab === 'kandang') {
                   setSearchParams({});
@@ -497,16 +636,95 @@ Ketik HAPUS untuk melanjutkan.`
         })}
       </div>
 
+      {activeTab === 'mitra' && (
+        <div className="space-y-5">
+          <div className="bg-white rounded-3xl border border-[#EFECE6] p-5 sm:p-7">
+            <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 mb-5">
+              <div>
+                <span className="text-[10px] font-black tracking-wider text-[#2D4A36] bg-[#EAF2EC] border border-[#CDE3D3] px-2.5 py-1 rounded-full">AKUN MARKETING</span>
+                <h3 className="text-xl font-black text-[#1B3022] mt-2">Buat Mitra Marketing</h3>
+                <p className="text-xs text-stone-500 mt-1 max-w-2xl">
+                  Cukup buat kode, nama, WhatsApp dan password. Mitra bertugas mendapatkan Member, menyerahkan Farm ID, follow-up dan monitoring. Masalah teknis kandang tetap ditangani Admin.
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handleCreatePartner} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+              <div>
+                <label className="text-[10px] font-black text-stone-500 uppercase">Kode Mitra</label>
+                <input
+                  required
+                  value={partnerForm.partnerCode}
+                  onChange={e=>setPartnerForm({...partnerForm,partnerCode:e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g,'')})}
+                  placeholder={makePartnerCode(partnerForm.name || 'IGEM')}
+                  className="mt-1 w-full p-3 rounded-xl border text-sm font-black tracking-wide"
+                />
+                <p className="text-[10px] text-stone-400 mt-1">Contoh: MTR-IGEM, MTR-ANDI</p>
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-stone-500 uppercase">Nama Mitra</label>
+                <input
+                  required
+                  value={partnerForm.name}
+                  onChange={e=>setPartnerForm({...partnerForm,name:e.target.value,partnerCode:partnerForm.partnerCode || makePartnerCode(e.target.value)})}
+                  placeholder="Nama Mitra Marketing"
+                  className="mt-1 w-full p-3 rounded-xl border text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-stone-500 uppercase">WhatsApp / Login</label>
+                <input required value={partnerForm.phone} onChange={e=>setPartnerForm({...partnerForm,phone:e.target.value})} placeholder="08xxxxxxxxxx" className="mt-1 w-full p-3 rounded-xl border text-sm"/>
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-stone-500 uppercase">Password Awal</label>
+                <div className="relative mt-1"><KeyRound className="absolute left-3 top-3.5 w-4 h-4 text-stone-400"/><input required minLength={6} type="password" value={partnerForm.password} onChange={e=>setPartnerForm({...partnerForm,password:e.target.value})} placeholder="Minimal 6 karakter" className="w-full pl-10 pr-3 py-3 rounded-xl border text-sm"/></div>
+              </div>
+              <button disabled={savingPartner} className="md:col-span-2 lg:col-span-4 p-3 rounded-xl bg-[#1B3022] hover:bg-[#2D4A36] text-white font-black text-sm">
+                {savingPartner?'Menyimpan...':'+ Buat Akun Mitra Marketing'}
+              </button>
+            </form>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h4 className="font-black text-[#1B3022]">Daftar Mitra Marketing</h4>
+                <p className="text-xs text-stone-500">Setiap kartu langsung menunjukkan jumlah Member yang menjadi tanggung jawab follow-up Mitra.</p>
+              </div>
+              <span className="text-xs font-black bg-[#EAF2EC] text-[#1B3022] px-3 py-1.5 rounded-full">{partners.length} Mitra</span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+              {partners.map(p=><div key={p.id} className="bg-white rounded-3xl border border-[#EFECE6] p-5 shadow-xs">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="inline-flex text-[11px] font-black text-[#1B3022] bg-[#D4AF37]/25 border border-[#D4AF37]/50 px-2.5 py-1 rounded-lg tracking-wide">{p.partner_code}</div>
+                    <div className="font-black text-lg text-stone-800 mt-2">{p.name}</div>
+                    <div className="text-xs text-stone-500">{p.phone || '-'}</div>
+                  </div>
+                  <span className="h-fit text-xs font-black bg-[#EAF2EC] text-[#1B3022] px-3 py-1.5 rounded-full">{Number(p.member_count||0)} Member</span>
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
+                  <div className="rounded-xl bg-[#FAF7F2] p-3"><span className="text-stone-400 text-[10px]">STATUS AKUN</span><div className="font-black mt-1">{p.account_status === 'active' ? '🟢 Aktif' : '⚪ Nonaktif'}</div></div>
+                  <div className="rounded-xl bg-[#FAF7F2] p-3"><span className="text-stone-400 text-[10px]">PERAN</span><div className="font-black mt-1">Marketing & Follow-up</div></div>
+                </div>
+                <button onClick={()=>handleDeletePartner(p)} className="mt-4 text-xs font-bold text-rose-600">Hapus Mitra</button>
+              </div>)}
+              {!partners.length && <div className="text-sm text-stone-500">Belum ada Mitra Marketing.</div>}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* TAB 1: MANAJEMEN KANDANG & MEMBER */}
       {activeTab === 'kandang' && (
         <div className="bg-white rounded-2xl sm:rounded-3xl border border-[#EFECE6] shadow-xs p-4 sm:p-6 md:p-8 space-y-5 sm:space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h3 className="text-lg sm:text-xl font-bold text-[#1B3022] font-['Outfit']">
-                Daftar Seluruh Kandang Mitra
+                Member & Farm ID
               </h3>
               <p className="text-xs text-stone-500">
-                Menampilkan {filteredFarms.length} kandang terdaftar dalam sistem
+                Setiap Member terikat ke satu Mitra Marketing. Lokasi kandang mengikuti GPS yang disimpan Member.
               </p>
             </div>
 
@@ -583,6 +801,18 @@ Ketik HAPUS untuk melanjutkan.`
             </div>
           </div>
 
+          <div className="bg-[#FAF7F2] border border-[#EFECE6] rounded-2xl p-3 sm:p-4">
+            <div className="flex items-center gap-2 mb-3 text-xs font-black text-[#1B3022]"><Filter className="w-4 h-4"/> FILTER WILAYAH & MITRA MARKETING</div>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+              <select value={provinceFilter} onChange={e=>setProvinceFilter(e.target.value)} className="p-2 rounded-xl border text-xs bg-white"><option value="all">Semua Provinsi</option>{uniqueValues('province').map(v=><option key={v} value={v}>{v}</option>)}</select>
+              <select value={regencyFilter} onChange={e=>setRegencyFilter(e.target.value)} className="p-2 rounded-xl border text-xs bg-white"><option value="all">Semua Kab/Kota</option>{uniqueValues('regency').map(v=><option key={v} value={v}>{v}</option>)}</select>
+              <select value={districtFilter} onChange={e=>setDistrictFilter(e.target.value)} className="p-2 rounded-xl border text-xs bg-white"><option value="all">Semua Kecamatan</option>{uniqueValues('district').map(v=><option key={v} value={v}>{v}</option>)}</select>
+              <select value={villageFilter} onChange={e=>setVillageFilter(e.target.value)} className="p-2 rounded-xl border text-xs bg-white"><option value="all">Semua Desa/Kelurahan</option>{uniqueValues('village').map(v=><option key={v} value={v}>{v}</option>)}</select>
+              <select value={partnerFilter} onChange={e=>setPartnerFilter(e.target.value)} className="p-2 rounded-xl border text-xs bg-white"><option value="all">Semua Mitra</option><option value="none">Belum Ada Mitra</option>{partners.map(p=><option key={p.id} value={p.id}>{p.partner_code} — {p.name}</option>)}</select>
+            </div>
+            <div className="mt-2 text-[11px] text-stone-500">Hasil filter: <b>{filteredFarms.length}</b> Farm ID. Filter ini membantu penarikan data per wilayah dan Mitra Marketing.</div>
+          </div>
+
           {/* Mobile Card View */}
           <div className="block sm:hidden space-y-3">
             {filteredFarms.map((f) => (
@@ -623,6 +853,11 @@ Ketik HAPUS untuk melanjutkan.`
                   </div>
                 </div>
 
+                <div className="text-[11px] text-stone-600">{[f.village,f.district,f.regency,f.province].filter(Boolean).join(', ') || 'Wilayah belum dilengkapi'}</div>
+                <div className="w-full p-2 rounded-lg bg-[#EAF2EC] border border-[#CDE3D3] text-xs font-black text-[#1B3022]">
+                  {f.partnerCode ? `${f.partnerCode} — ${f.partnerName}` : 'Belum ada Mitra'}
+                </div>
+
                 <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#E5E1D8]">
                   {f.userId && (
                     <button
@@ -642,6 +877,7 @@ Ketik HAPUS untuk melanjutkan.`
                       <span>WhatsApp</span>
                     </button>
                   )}
+                  <button onClick={() => openFarmMap(f)} className="px-3 py-1.5 bg-white text-[#1B3022] border border-[#CDE3D3] font-bold text-xs rounded-xl flex items-center gap-1 cursor-pointer"><MapPin className="w-3.5 h-3.5"/><span>Lokasi Member</span></button>
                   <button
                     onClick={() => handleDeleteFarm(f)}
                     className="px-3 py-1.5 bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 font-bold text-xs rounded-xl flex items-center gap-1 cursor-pointer"
@@ -662,6 +898,7 @@ Ketik HAPUS untuk melanjutkan.`
                   <th className="py-3.5 px-3">Farm ID</th>
                   <th className="py-3.5 px-3">Pemilik Kandang</th>
                   <th className="py-3.5 px-3">Lokasi</th>
+                  <th className="py-3.5 px-3">Mitra Marketing</th>
                   <th className="py-3.5 px-3">Ayam Aktif</th>
                   <th className="py-3.5 px-3">Status</th>
                   <th className="py-3.5 px-3 text-right">Aksi</th>
@@ -682,6 +919,11 @@ Ketik HAPUS untuk melanjutkan.`
                       <div className="text-xs text-stone-500">{f.phone || '-'}</div>
                     </td>
                     <td className="py-4 px-3 text-stone-600 text-xs">{f.location}</td>
+                    <td className="py-4 px-3">
+                      <div className="max-w-[210px] px-3 py-2 rounded-xl bg-[#EAF2EC] border border-[#CDE3D3] text-xs font-black text-[#1B3022]">
+                        {f.partnerCode ? `${f.partnerCode} — ${f.partnerName}` : 'Belum ditetapkan'}
+                      </div>
+                    </td>
                     <td className="py-4 px-3 font-semibold text-stone-700">
                       {f.activeChickens} ekor ({f.currentAgeWeeks} mgg)
                     </td>
@@ -725,6 +967,7 @@ Ketik HAPUS untuk melanjutkan.`
                             <Phone className="w-4 h-4" />
                           </button>
                         )}
+                        <button onClick={() => openFarmMap(f)} className="p-2 text-[#2D4A36] hover:bg-[#EAF2EC] rounded-xl" title="Buka lokasi GPS kandang Member"><MapPin className="w-4 h-4"/></button>
                         <button
                           onClick={() => handleDeleteFarm(f)}
                           className="p-2 text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
@@ -742,6 +985,114 @@ Ketik HAPUS untuk melanjutkan.`
         </div>
       )}
 
+
+      {activeTab === 'sales' && (
+        <div className="space-y-5">
+          <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
+            <div>
+              <span className="text-[10px] font-black tracking-wider text-[#2D4A36] bg-[#EAF2EC] border border-[#CDE3D3] px-2.5 py-1 rounded-full">
+                DATA TRANSAKSI MEMBER
+              </span>
+              <h3 className="text-2xl font-black text-[#1B3022] mt-2">Penjualan Telur</h3>
+              <p className="text-xs text-stone-500 mt-1">
+                Data berasal dari transaksi yang dicatat Member, bukan estimasi dari jumlah produksi.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <input
+                type="month"
+                value={salesMonth}
+                onChange={(e)=>setSalesMonth(e.target.value)}
+                className="px-4 py-2.5 rounded-2xl bg-white border border-[#E5E1D8] text-sm font-bold"
+              />
+              <select
+                value={salesFarmFilter}
+                onChange={(e)=>setSalesFarmFilter(e.target.value)}
+                className="px-4 py-2.5 rounded-2xl bg-white border border-[#E5E1D8] text-sm font-bold"
+              >
+                <option value="all">Semua Farm ID</option>
+                {normalizedFarms.map((f:any)=>(
+                  <option key={f.id} value={f.id}>{f.farmCode} — {f.ownerName || 'Member'}</option>
+                ))}
+              </select>
+              <button onClick={()=>loadEggSales()} className="px-4 py-2.5 rounded-2xl bg-[#1B3022] text-white font-black text-xs flex items-center gap-2">
+                <RefreshCw className="w-4 h-4"/> Perbarui
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="bg-white rounded-3xl border border-[#EFECE6] p-4">
+              <div className="text-[10px] font-black text-stone-500 uppercase">Omzet</div>
+              <div className="text-2xl font-black mt-1">{new Intl.NumberFormat('id-ID',{style:'currency',currency:'IDR',maximumFractionDigits:0}).format(Number(salesSummary.totalAmount||0))}</div>
+            </div>
+            <div className="bg-white rounded-3xl border border-[#EFECE6] p-4">
+              <div className="text-[10px] font-black text-stone-500 uppercase">Telur Terjual</div>
+              <div className="text-2xl font-black mt-1">{Number(salesSummary.totalEggs||0).toLocaleString('id-ID')} <span className="text-xs">butir</span></div>
+            </div>
+            <div className="bg-white rounded-3xl border border-[#EFECE6] p-4">
+              <div className="text-[10px] font-black text-stone-500 uppercase">Transaksi</div>
+              <div className="text-2xl font-black mt-1">{Number(salesSummary.transactionCount||0)}</div>
+            </div>
+            <div className="bg-white rounded-3xl border border-[#EFECE6] p-4">
+              <div className="text-[10px] font-black text-stone-500 uppercase">Rata-rata Harga / Kg</div>
+              <div className="text-2xl font-black mt-1">
+                {Number(salesSummary.averagePricePerKg||0)>0
+                  ? new Intl.NumberFormat('id-ID',{style:'currency',currency:'IDR',maximumFractionDigits:0}).format(Number(salesSummary.averagePricePerKg||0))
+                  : '-'}
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-3xl border border-[#EFECE6] overflow-hidden">
+            <div className="p-5 border-b border-[#EFECE6]">
+              <h4 className="font-black text-lg">Transaksi Member</h4>
+            </div>
+            {eggSales.length === 0 ? (
+              <div className="p-12 text-center text-sm text-stone-500">Belum ada transaksi pada filter ini.</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-[#FAF7F2] text-stone-500">
+                    <tr>
+                      <th className="p-4">Tanggal</th>
+                      <th className="p-4">Farm ID / Member</th>
+                      <th className="p-4">Jumlah</th>
+                      <th className="p-4">Harga</th>
+                      <th className="p-4">Total</th>
+                      <th className="p-4">Pembeli</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#EFECE6]">
+                    {eggSales.map((s:any)=>(
+                      <tr key={s.id}>
+                        <td className="p-4 font-bold">{s.saleDate}</td>
+                        <td className="p-4">
+                          <div className="font-mono font-black">{s.farmCode || s.farmId}</div>
+                          <div className="text-stone-500 mt-0.5">{s.ownerName || '-'}</div>
+                        </td>
+                        <td className="p-4 font-bold">
+                          {s.eggCount} butir
+                          {s.weightKg ? <div className="text-stone-500">{s.weightKg} kg</div> : null}
+                        </td>
+                        <td className="p-4">
+                          {new Intl.NumberFormat('id-ID',{style:'currency',currency:'IDR',maximumFractionDigits:0}).format(Number(s.unitPrice||0))}
+                          <span className="text-stone-500">/{s.priceBasis === 'kg' ? 'kg' : 'butir'}</span>
+                        </td>
+                        <td className="p-4 font-black text-[#2D4A36]">
+                          {new Intl.NumberFormat('id-ID',{style:'currency',currency:'IDR',maximumFractionDigits:0}).format(Number(s.totalAmount||0))}
+                        </td>
+                        <td className="p-4">{s.buyerName || '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* TAB 2: SMART ALERTS */}
       {activeTab === 'alerts' && (
         <div className="bg-white rounded-3xl border border-[#EFECE6] shadow-xs p-6 md:p-8 space-y-4">
@@ -749,7 +1100,7 @@ Ketik HAPUS untuk melanjutkan.`
             <div className="flex items-center gap-2">
               <ShieldAlert className="w-6 h-6 text-rose-600" />
               <h3 className="text-xl font-bold text-[#1B3022] font-['Outfit']">
-                Peringatan Dini & Rule-Based Smart Alert
+                Masalah Kandang & Perlu Ditangani Admin
               </h3>
             </div>
             <span className="text-xs font-bold text-rose-700 bg-rose-100 px-2.5 py-0.5 rounded-full">
@@ -757,8 +1108,19 @@ Ketik HAPUS untuk melanjutkan.`
             </span>
           </div>
 
+          <div className="rounded-2xl bg-[#EAF2EC] border border-[#CDE3D3] p-4 flex items-start gap-3">
+            <Headphones className="w-5 h-5 text-[#2D4A36] shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-black text-[#1B3022]">Penanganan langsung oleh Admin Eggnest</p>
+              <p className="text-xs text-stone-600 mt-1">
+                Jika laporan Member menunjukkan ayam sakit, mati, penurunan produksi, atau kondisi lain yang perlu tindakan,
+                Admin menindaklanjuti langsung. Mitra Marketing hanya dapat memonitor dan melakukan follow-up hubungan Member.
+              </p>
+            </div>
+          </div>
+
           <div className="space-y-3">
-            {adminAlerts.map((alert) => (
+            {adminAlerts.filter((alert) => !alert.resolved).map((alert) => (
               <div
                 key={alert.id}
                 className={`p-4 md:p-5 rounded-2xl border flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all ${
@@ -792,10 +1154,18 @@ Ketik HAPUS untuk melanjutkan.`
                   {!alert.resolved ? (
                     <>
                       <button
-                        onClick={() => handleContactMember(alert.ownerName, '0812-XXXX-XXXX')}
-                        className="px-4 py-2 bg-white hover:bg-[#FAF7F2] border border-[#EFECE6] text-[#1B3022] font-bold text-xs rounded-xl transition-colors cursor-pointer"
+                        onClick={() => handleOpenAlertFarm(alert)}
+                        className="px-4 py-2 bg-white hover:bg-[#FAF7F2] border border-[#EFECE6] text-[#1B3022] font-bold text-xs rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
                       >
-                        {alert.actionText}
+                        <Eye className="w-3.5 h-3.5" />
+                        Lihat Laporan
+                      </button>
+                      <button
+                        onClick={() => handleContactAlertMember(alert)}
+                        className="px-4 py-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 font-bold text-xs rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
+                      >
+                        <Phone className="w-3.5 h-3.5" />
+                        Hubungi Member
                       </button>
                       <button
                         onClick={() => resolveAdminAlert(alert.id)}
@@ -812,6 +1182,13 @@ Ketik HAPUS untuk melanjutkan.`
                 </div>
               </div>
             ))}
+            {adminAlerts.filter((alert) => !alert.resolved).length === 0 && (
+              <div className="py-10 text-center rounded-2xl border border-dashed border-[#CDE3D3] bg-[#FAFCFA]">
+                <CheckCircle2 className="w-8 h-8 text-[#2D4A36] mx-auto mb-2" />
+                <p className="font-black text-[#1B3022]">Belum ada masalah kandang aktif</p>
+                <p className="text-xs text-stone-500 mt-1">Laporan bermasalah dari Member akan otomatis muncul di sini.</p>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -822,10 +1199,10 @@ Ketik HAPUS untuk melanjutkan.`
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-xl font-bold text-[#1B3022] font-['Outfit']">
-                Manajemen Tiket Bantuan & Konsultasi
+                Penanganan Member & Tiket Bantuan
               </h3>
               <p className="text-xs text-stone-500">
-                Kelola keluhan, pertanyaan pakan, dan klaim garansi member
+                Semua keluhan teknis kandang ditangani Admin. Mitra Marketing hanya melakukan monitoring dan follow-up Member.
               </p>
             </div>
           </div>
@@ -872,6 +1249,13 @@ Ketik HAPUS untuk melanjutkan.`
                 </div>
               </div>
             ))}
+            {tickets.length === 0 && (
+              <div className="py-10 text-center rounded-2xl border border-dashed border-[#E5E1D8] bg-[#FAF7F2]">
+                <Headphones className="w-8 h-8 text-stone-400 mx-auto mb-2" />
+                <p className="font-black text-[#1B3022]">Belum ada tiket bantuan</p>
+                <p className="text-xs text-stone-500 mt-1">Tiket dari Member akan masuk langsung ke Admin Eggnest.</p>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -962,123 +1346,31 @@ Ketik HAPUS untuk melanjutkan.`
         </div>
       )}
 
-      {/* TAB 5: PENGATURAN SISTEM & DATABASE */}
+      {/* TAB: RINGKASAN OPERASIONAL */}
       {activeTab === 'pengaturan' && (
-        <div className="bg-white rounded-3xl border border-[#EFECE6] shadow-xs p-6 md:p-8 space-y-8">
-          <div>
-            <h3 className="text-xl font-bold text-[#1B3022] font-['Outfit']">
-              Pengaturan Bisnis & Sistem
-            </h3>
-            <p className="text-xs text-stone-500">
-              Konfigurasi harga acuan telur, parameter ambang batas alert, dan reset database
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-            <div className="space-y-1">
-              <label className="block text-xs font-bold text-stone-700">
-                Harga Acuan Telur Segar / Kg (IDR)
-              </label>
-              <input
-                type="number"
-                value={localSettings.eggPricePerKg}
-                onChange={(e) =>
-                  setLocalSettings({ ...localSettings, eggPricePerKg: Number(e.target.value) })
-                }
-                className="w-full px-4 py-3 bg-[#FAF7F2] border border-[#EFECE6] rounded-2xl text-sm font-bold text-[#1B3022]"
-              />
+        <div className="space-y-5">
+          <div className="bg-white rounded-3xl border border-[#EFECE6] p-6 md:p-8">
+            <div className="flex items-start justify-between gap-4 mb-5">
+              <div>
+                <span className="text-[10px] font-black tracking-wider text-[#2D4A36] bg-[#EAF2EC] px-2.5 py-1 rounded-full">PRIORITAS HARI INI</span>
+                <h3 className="text-xl font-black text-[#1B3022] mt-2">Ringkasan Operasional Admin</h3>
+                <p className="text-xs text-stone-500 mt-1">Yang perlu dilihat Admin setiap hari tanpa masuk ke pengaturan teknis sistem.</p>
+              </div>
             </div>
-
-            <div className="space-y-1">
-              <label className="block text-xs font-bold text-stone-700">
-                Jumlah Butir Telur per Kg
-              </label>
-              <input
-                type="number"
-                value={localSettings.eggsPerKg}
-                onChange={(e) =>
-                  setLocalSettings({ ...localSettings, eggsPerKg: Number(e.target.value) })
-                }
-                className="w-full px-4 py-3 bg-[#FAF7F2] border border-[#EFECE6] rounded-2xl text-sm font-bold text-[#1B3022]"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <label className="block text-xs font-bold text-stone-700">
-                Threshold Penurunan Produksi Warning (%)
-              </label>
-              <input
-                type="number"
-                value={localSettings.warningDropThreshold}
-                onChange={(e) =>
-                  setLocalSettings({ ...localSettings, warningDropThreshold: Number(e.target.value) })
-                }
-                className="w-full px-4 py-3 bg-[#FAF7F2] border border-[#EFECE6] rounded-2xl text-sm font-bold text-[#1B3022]"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <label className="block text-xs font-bold text-stone-700">
-                Threshold Penurunan Produksi Kritis (%)
-              </label>
-              <input
-                type="number"
-                value={localSettings.criticalDropThreshold}
-                onChange={(e) =>
-                  setLocalSettings({ ...localSettings, criticalDropThreshold: Number(e.target.value) })
-                }
-                className="w-full px-4 py-3 bg-[#FAF7F2] border border-[#EFECE6] rounded-2xl text-sm font-bold text-[#1B3022]"
-              />
-            </div>
-
-            <div className="space-y-1 sm:col-span-2">
-              <label className="block text-xs font-bold text-stone-700">
-                Nomor Hotline WhatsApp Bantuan Resmi
-              </label>
-              <input
-                type="text"
-                value={localSettings.whatsappSupportNumber}
-                onChange={(e) =>
-                  setLocalSettings({ ...localSettings, whatsappSupportNumber: e.target.value })
-                }
-                className="w-full px-4 py-3 bg-[#FAF7F2] border border-[#EFECE6] rounded-2xl text-sm font-bold text-[#1B3022]"
-              />
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="rounded-2xl bg-[#FAF7F2] border border-[#EFECE6] p-4"><div className="text-[10px] font-black text-stone-400">LAPORAN MASUK HARI INI</div><div className="text-3xl font-black text-[#1B3022] mt-1">{todayReports.length}</div><div className="text-xs text-stone-500">dari {normalizedFarms.length} Farm ID</div></div>
+              <div className="rounded-2xl bg-amber-50 border border-amber-200 p-4"><div className="text-[10px] font-black text-amber-700">BELUM LAPOR</div><div className="text-3xl font-black text-amber-800 mt-1">{Math.max(0, normalizedFarms.filter(f=>f.status !== 'unclaimed').length - new Set(todayReports.map((r:any)=>String(r.farmId ?? r.farm_id ?? ''))).size)}</div><div className="text-xs text-amber-700">Member aktif hari ini</div></div>
+              <div className="rounded-2xl bg-rose-50 border border-rose-200 p-4"><div className="text-[10px] font-black text-rose-700">MASALAH AKTIF</div><div className="text-3xl font-black text-rose-700 mt-1">{adminAlerts.filter(a=>!a.resolved).length}</div><button onClick={()=>setActiveTab('alerts')} className="text-xs font-black text-rose-700 mt-1">Buka Masalah →</button></div>
+              <div className="rounded-2xl bg-[#EAF2EC] border border-[#CDE3D3] p-4"><div className="text-[10px] font-black text-[#2D4A36]">TIKET TERBUKA</div><div className="text-3xl font-black text-[#1B3022] mt-1">{tickets.filter(t=>t.status !== 'Selesai').length}</div><button onClick={()=>setActiveTab('tickets')} className="text-xs font-black text-[#2D4A36] mt-1">Buka Tiket →</button></div>
             </div>
           </div>
 
-          <div className="pt-2 flex justify-start">
-            <button
-              onClick={() => updateSettings(localSettings)}
-              className="px-6 py-3 bg-[#1B3022] hover:bg-[#2D4A36] text-[#FDFBF7] font-black text-sm rounded-2xl shadow-md cursor-pointer flex items-center gap-2"
-            >
-              <Save className="w-4 h-4 text-[#D4AF37]" />
-              <span>Simpan Pengaturan</span>
-            </button>
-          </div>
-
-          {/* Database Demo Utilities */}
-          <div className="pt-6 border-t border-[#EFECE6] space-y-4">
-            <h4 className="text-base font-bold text-[#1B3022] font-['Outfit']">
-              Utilitas Database & Pengujian
-            </h4>
-            <p className="text-xs text-stone-500">
-              Gunakan opsi ini untuk menguji state kosong (empty states) atau memuat dataset demo lengkap.
-            </p>
-            <div className="flex flex-wrap gap-3">
-              <button
-                onClick={loadDemoDatabase}
-                className="px-4 py-2.5 bg-[#EAF2EC] hover:bg-[#CDE3D3] text-[#1B3022] font-bold text-xs rounded-xl flex items-center gap-2 cursor-pointer border border-[#CDE3D3]"
-              >
-                <RefreshCw className="w-3.5 h-3.5 text-[#2D4A36]" />
-                <span>Muat Ulang Data Demo Lengkap</span>
-              </button>
-              <button
-                onClick={resetToCleanDatabase}
-                className="px-4 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-800 font-bold text-xs rounded-xl flex items-center gap-2 cursor-pointer border border-rose-200"
-              >
-                <Database className="w-3.5 h-3.5 text-rose-600" />
-                <span>Kosongkan Database (Uji Empty State)</span>
-              </button>
+          <div className="bg-white rounded-3xl border border-[#EFECE6] p-6">
+            <h4 className="font-black text-[#1B3022]">Alur Operasional</h4>
+            <div className="grid md:grid-cols-3 gap-3 mt-4">
+              <div className="rounded-2xl bg-[#FAF7F2] p-4"><div className="text-xs font-black text-[#1B3022]">1. Member</div><p className="text-xs text-stone-500 mt-1">Mengisi laporan telur, pakan, kondisi ayam dan GPS kandang.</p></div>
+              <div className="rounded-2xl bg-[#FAF7F2] p-4"><div className="text-xs font-black text-[#1B3022]">2. Admin</div><p className="text-xs text-stone-500 mt-1">Menerima masalah, menanggapi tiket, memberi solusi dan menandai selesai.</p></div>
+              <div className="rounded-2xl bg-[#FAF7F2] p-4"><div className="text-xs font-black text-[#1B3022]">3. Mitra Marketing</div><p className="text-xs text-stone-500 mt-1">Melihat Member binaan, monitoring dan melakukan follow-up hubungan Member.</p></div>
             </div>
           </div>
         </div>
@@ -1483,7 +1775,7 @@ Ketik HAPUS untuk melanjutkan.`
                   className="w-full px-3.5 py-2.5 bg-[#FAF7F2] border border-[#EFECE6] rounded-xl text-sm font-black text-[#1B3022] tracking-wide"
                 />
                 <p className="text-[10px] text-stone-500 mt-1">
-                  Kode ini diberikan kepada pembeli untuk registrasi akun. Harus unik.
+                  Kode dibuat dan dikontrol Admin, lalu diserahkan kepada Member melalui Mitra Marketing saat aktivasi. Harus unik.
                 </p>
               </div>
               <div>
@@ -1508,15 +1800,24 @@ Ketik HAPUS untuk melanjutkan.`
                   className="w-full px-3.5 py-2.5 bg-[#FAF7F2] border border-[#EFECE6] rounded-xl text-sm font-semibold text-[#1B3022]"
                 />
               </div>
+              <div className="rounded-xl bg-[#EAF2EC] border border-[#CDE3D3] p-3">
+                <label className="block font-bold text-[#1B3022] mb-1">Lokasi Kandang</label>
+                <p className="text-[11px] text-stone-600">Lokasi tidak diisi Admin. Setelah Member aktivasi, GPS dan alamat kandang diambil dari akun Member.</p>
+              </div>
               <div>
-                <label className="block font-bold text-stone-700 mb-1">Lokasi Kandang</label>
-                <input
-                  type="text"
-                  value={newFarmLocation}
-                  onChange={(e) => setNewFarmLocation(e.target.value)}
-                  placeholder="Contoh: Depok, Jawa Barat"
+                <label className="block font-bold text-stone-700 mb-1">Mitra Marketing *</label>
+                <select
+                  required
+                  value={newFarmPartnerId}
+                  onChange={(e) => setNewFarmPartnerId(e.target.value)}
                   className="w-full px-3.5 py-2.5 bg-[#FAF7F2] border border-[#EFECE6] rounded-xl text-sm font-semibold text-[#1B3022]"
-                />
+                >
+                  <option value="">Pilih Mitra Marketing</option>
+                  {partners.filter((p:any)=>p.status === 'active').map((p:any)=>(
+                    <option key={p.id} value={p.id}>{p.partner_code} — {p.name}</option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-stone-500 mt-1">Setelah Farm ID dibuat, relasi Mitra–Member dikunci di tampilan Admin.</p>
               </div>
               <div>
                 <label className="block font-bold text-stone-700 mb-1">Kapasitas Ayam</label>
@@ -1692,7 +1993,7 @@ Ketik HAPUS untuk melanjutkan.`
                     }`}
                   >
                     <div className="flex items-center justify-between gap-4 font-bold text-[10px] mb-1 opacity-80">
-                      <span>{msg.senderName} ({msg.senderRole})</span>
+                      <span>{msg.senderName} ({msg.senderRole === 'member' ? 'Member' : 'Admin'})</span>
                       <span>{msg.createdAt}</span>
                     </div>
                     <p className="leading-relaxed">{msg.message}</p>
@@ -1744,7 +2045,7 @@ Ketik HAPUS untuk melanjutkan.`
                 type="text"
                 value={replyMessage}
                 onChange={(e) => setReplyMessage(e.target.value)}
-                placeholder="Ketik instruksi / saran dokter hewan..."
+                placeholder="Ketik tanggapan / solusi Admin Eggnest..."
                 className="flex-1 px-4 py-3 bg-[#FAF7F2] border border-[#EFECE6] rounded-2xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[#2D4A36] focus:bg-white"
               />
               <button
@@ -1752,7 +2053,7 @@ Ketik HAPUS untuk melanjutkan.`
                 className="px-5 py-3 bg-[#2D4A36] hover:bg-[#1B3022] text-[#FDFBF7] font-bold text-xs rounded-2xl shadow-xs cursor-pointer flex items-center gap-1.5"
               >
                 <Send className="w-4 h-4" />
-                <span>Kirim Solusi</span>
+                <span>Kirim Tanggapan</span>
               </button>
             </div>
           </div>

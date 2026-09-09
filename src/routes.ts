@@ -18,6 +18,7 @@ export const ROUTES = {
   REGISTER: '/register',
   HOME: '/home',
   REPORTS: '/reports',
+  SALES: '/sales',
   DEVELOPMENT: '/development',
   ACADEMY: '/academy',
   SUPPORT: '/support',
@@ -25,6 +26,18 @@ export const ROUTES = {
   PROFILE: '/profile',
   ADMIN: '/admin',
   APIDOCS: '/apidocs',
+
+  MITRA: '/mitra',
+  MITRA_MEMBERS: '/mitra/members',
+  MITRA_REPORTS: '/mitra/reports',
+  MITRA_MONITORING: '/mitra/monitoring',
+  MITRA_FOLLOW_UP: '/mitra/follow-up',
+  MITRA_ACADEMY: '/mitra/academy',
+  MITRA_PROFILE: '/mitra/profile',
+
+  // Alias route lama
+  MITRA_ATTENTION: '/mitra/attention',
+  MITRA_SUPPORT: '/mitra/support',
 } as const;
 
 export const PAGE_TO_PATH: Record<ActivePage, string> = {
@@ -49,24 +62,30 @@ export const PATH_TO_PAGE: Record<string, ActivePage> = {
 
   '/home': 'beranda',
   '/beranda': 'beranda',
-
   '/reports': 'laporan',
+  '/sales': 'laporan',
   '/laporan': 'laporan',
-
   '/development': 'perkembangan',
   '/perkembangan': 'perkembangan',
-
   '/academy': 'academy',
-
   '/support': 'bantuan',
   '/bantuan': 'bantuan',
-
   '/score': 'score',
   '/farm': 'score',
-
   '/profile': 'profil',
   '/profil': 'profil',
-
   '/admin': 'admin',
   '/apidocs': 'apidocs',
+
+  '/mitra': 'beranda',
+  '/mitra/members': 'laporan',
+  '/mitra/reports': 'laporan',
+  '/mitra/monitoring': 'perkembangan',
+  '/mitra/follow-up': 'bantuan',
+  '/mitra/academy': 'academy',
+  '/mitra/profile': 'profil',
+
+  // Alias lama
+  '/mitra/attention': 'perkembangan',
+  '/mitra/support': 'bantuan',
 };

@@ -54,7 +54,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 
 export const api = {
   // Auth
-  async login(params: { role: 'member' | 'admin'; phone?: string; identifier?: string; password?: string }) {
+  async login(params: { role: 'member' | 'admin' | 'mitra'; phone?: string; identifier?: string; password?: string }) {
     const res = await request<{
       success: boolean;
       message: string;
@@ -125,21 +125,109 @@ export const api = {
   async saveDailyReport(data: {
     farmId?: string;
     date: string;
-    eggCount: number;
+    eggCount?: number;
     feedKg: number;
-    chickenCondition: ChickenCondition;
+    chickenCondition?: ChickenCondition;
     issueTypes?: IssueType[];
+    layingChickens?: number[];
+    chickenReports?: Array<{
+      chickenNumber: number;
+      condition: 'HEALTHY' | 'SICK' | 'DEAD';
+      problemTypes?: string[];
+      customNotes?: string;
+    }>;
     notes?: string;
     photoUrl?: string;
     videoUrl?: string;
   }) {
-    return request<{ success: boolean; message: string; productivity: number; fcr?: number }>(
-      '/reports',
-      {
-        method: 'POST',
-        body: JSON.stringify(data),
-      }
+    return request<{
+      success: boolean;
+      message: string;
+      productivity: number;
+      fcr?: number;
+      eggCount?: number;
+      layingChickens?: number[];
+    }>('/reports', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // Mitra Pendamping & wilayah
+  async getPartners() {
+    return request<{ success: boolean; partners: any[] }>('/admin/partners');
+  },
+
+  async createPartner(data: any) {
+    return request<{ success: boolean; message: string; partner: any }>('/admin/partners', { method: 'POST', body: JSON.stringify(data) });
+  },
+
+  async updatePartner(id: string, data: any) {
+    return request<{ success: boolean; message: string; partner: any }>(`/admin/partners/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) });
+  },
+
+  async deletePartner(id: string) {
+    return request<{ success: boolean; message: string }>(`/admin/partners/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
+
+  async assignFarmPartner(farmId: string, partnerId: string | null) {
+    return request<{ success: boolean; message: string }>(`/admin/farms/${encodeURIComponent(farmId)}/partner`, { method: 'PATCH', body: JSON.stringify({ partnerId }) });
+  },
+
+
+  // Portal Mitra Pendamping
+  async getMitraProfile() {
+    return request<{ success: boolean; partner: any }>('/mitra/profile');
+  },
+
+  async updateMitraProfile(data: {
+    address: string;
+    province: string;
+    regency: string;
+    district: string;
+    village: string;
+    latitude: number;
+    longitude: number;
+  }) {
+    return request<{ success: boolean; message: string; partner: any }>('/mitra/profile', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getMitraDashboard() {
+    return request<{ success: boolean; partner: any; summary: any; farms: Farm[] }>('/mitra/dashboard');
+  },
+
+  async updateMitraFarmProfile(farmId: string, data: {
+    location: string;
+    fullAddress: string;
+    latitude: number;
+    longitude: number;
+    chickenBreed: string;
+    activeChickens: number;
+    currentAgeWeeks: number;
+    province?: string;
+    regency?: string;
+    district?: string;
+    village?: string;
+  }) {
+    return request<{ success: boolean; message: string; farm: Farm }>(
+      `/mitra/farms/${encodeURIComponent(farmId)}/profile`,
+      { method: 'PUT', body: JSON.stringify(data) }
     );
+  },
+
+  // GPS -> alamat otomatis
+  async reverseGeocode(latitude: number, longitude: number) {
+    const qs = new URLSearchParams({ lat: String(latitude), lng: String(longitude) });
+    return request<{
+      success: boolean;
+      location: {
+        fullAddress: string; province: string; regency: string; city: string; district: string; village: string;
+        latitude: number; longitude: number;
+      };
+    }>(`/location/reverse?${qs.toString()}`);
   },
 
   // Farms
@@ -164,6 +252,7 @@ export const api = {
     farmCode?: string;
     ownerName?: string;
     phone?: string;
+    password?: string;
     location?: string;
     purchaseDate?: string;
     fullAddress?: string;
@@ -172,6 +261,7 @@ export const api = {
     initialChickens?: number;
     chickenBreed?: string;
     initialAgeWeeks?: number;
+    province?: string; regency?: string; district?: string; village?: string; partnerId?: string | null;
   }) {
     return request<{ success: boolean; message: string; farm: Farm }>('/admin/farms', {
       method: 'POST',
@@ -195,6 +285,7 @@ export const api = {
     chickenBreed: string;
     activeChickens: number;
     currentAgeWeeks: number;
+    province?: string; regency?: string; district?: string; village?: string;
   }) {
     return request<{ success: boolean; message: string; farm: Farm }>('/farms/me/profile', {
       method: 'PUT',
@@ -210,7 +301,8 @@ export const api = {
   },
 
   // Dokter Hewan Siaga — Asisten Kandang 24 Jam
-  async getVetAiHistory() {
+  async getVetAiHistory(farmId?: string) {
+    const query = farmId ? `?farmId=${encodeURIComponent(farmId)}` : '';
     return request<{
       success: boolean;
       messages: Array<{
@@ -220,10 +312,10 @@ export const api = {
         attachment_url?: string | null;
         created_at: string;
       }>;
-    }>('/vet-ai/history');
+    }>(`/vet-ai/history${query}`);
   },
 
-  async chatVetAi(message: string, photoUrl?: string) {
+  async chatVetAi(message: string, photoUrl?: string, farmId?: string) {
     return request<{
       success: boolean;
       reply: string;
@@ -237,22 +329,25 @@ export const api = {
       };
     }>('/vet-ai/chat', {
       method: 'POST',
-      body: JSON.stringify({ message, photoUrl }),
+      body: JSON.stringify({ message, photoUrl, farmId }),
     });
   },
 
-  async clearVetAiHistory() {
-    return request<{ success: boolean }>('/vet-ai/history', {
+  async clearVetAiHistory(farmId?: string) {
+    const query = farmId ? `?farmId=${encodeURIComponent(farmId)}` : '';
+    return request<{ success: boolean }>(`/vet-ai/history${query}`, {
       method: 'DELETE',
     });
   },
 
   // Support Tickets
-  async getTickets() {
-    return request<{ success: boolean; tickets: SupportTicket[] }>('/tickets');
+  async getTickets(farmId?: string) {
+    const query = farmId ? `?farmId=${encodeURIComponent(farmId)}` : '';
+    return request<{ success: boolean; tickets: SupportTicket[] }>(`/tickets${query}`);
   },
 
   async createTicket(data: {
+    farmId?: string;
     category: string;
     title?: string;
     description: string;
@@ -348,14 +443,16 @@ export const api = {
   },
 
   // Export & Import Excel
-  async downloadExportExcel(type: 'members' | 'farms' | 'chickens' | 'reports' | 'scores' | 'tickets') {
+  async downloadExportExcel(type: 'members' | 'farms' | 'chickens' | 'reports' | 'scores' | 'tickets', filters?: { province?: string; regency?: string; district?: string; village?: string; partnerId?: string }) {
     const token = getToken();
     const headers: Record<string, string> = {};
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
-    const res = await fetch(`/api/admin/export/${type}`, {
+    const qs = new URLSearchParams();
+    if (filters) Object.entries(filters).forEach(([k,v]) => { if (v && v !== 'all') qs.set(k, v); });
+    const res = await fetch(`/api/admin/export/${type}${qs.toString() ? `?${qs.toString()}` : ''}`, {
       method: 'GET',
       headers,
     });
@@ -510,6 +607,81 @@ export const api = {
     }
 
     return data;
+  },
+
+
+  // Penjualan Telur — data transaksi nyata Member
+  async getEggSales(params?: { month?: string; farmId?: string }) {
+    const qs = new URLSearchParams();
+    if (params?.month) qs.set('month', params.month);
+    if (params?.farmId) qs.set('farmId', params.farmId);
+    const query = qs.toString() ? `?${qs.toString()}` : '';
+    return request<{
+      success: boolean;
+      sales: Array<{
+        id: string;
+        farmId: string;
+        farmCode?: string;
+        ownerName?: string;
+        saleDate: string;
+        priceBasis: 'kg' | 'egg';
+        eggCount: number;
+        weightKg: number | null;
+        unitPrice: number;
+        totalAmount: number;
+        buyerName?: string | null;
+        notes?: string | null;
+        createdAt: string;
+        updatedAt: string;
+      }>;
+      summary: {
+        transactionCount: number;
+        totalEggs: number;
+        totalWeightKg: number;
+        totalAmount: number;
+        averagePricePerKg: number;
+        producedEggs: number;
+        availableEggs: number;
+      };
+    }>(`/sales${query}`);
+  },
+
+  async createEggSale(data: {
+    saleDate: string;
+    priceBasis: 'kg' | 'egg';
+    eggCount: number;
+    weightKg?: number | null;
+    unitPrice: number;
+    buyerName?: string;
+    notes?: string;
+    farmId?: string;
+  }) {
+    return request<{ success: boolean; message: string; sale: any; summary: any }>('/sales', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateEggSale(id: string, data: {
+    saleDate: string;
+    priceBasis: 'kg' | 'egg';
+    eggCount: number;
+    weightKg?: number | null;
+    unitPrice: number;
+    buyerName?: string;
+    notes?: string;
+  }) {
+    return request<{ success: boolean; message: string; sale: any }>(
+      `/sales/${encodeURIComponent(id)}`,
+      { method: 'PUT', body: JSON.stringify(data) }
+    );
+  },
+
+  async deleteEggSale(id: string) {
+    return request<{ success: boolean; message: string }>(
+      `/sales/${encodeURIComponent(id)}`,
+      { method: 'DELETE' }
+    );
   },
 
   // Demo Controls

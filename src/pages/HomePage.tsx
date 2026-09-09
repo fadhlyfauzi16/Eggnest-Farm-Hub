@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useFarm } from '../context/FarmContext';
+import { api } from '../services/api';
 import {
   Egg,
   Wheat,
@@ -54,13 +55,25 @@ export const HomePage: React.FC = () => {
     monthFeedKg,
     productivityRate,
     productivityStatus,
-    estimatedEggValue,
     averageEggsPerDay,
     setActivePage,
     notifications,
     textScale,
     currentUser,
   } = useFarm();
+
+  const [monthSales, setMonthSales] = useState({ totalAmount: 0, totalEggs: 0, transactionCount: 0 });
+  useEffect(() => {
+    const month = jakartaDateKey().slice(0, 7);
+    api.getEggSales({ month })
+      .then((res) => setMonthSales({
+        totalAmount: Number(res.summary?.totalAmount || 0),
+        totalEggs: Number(res.summary?.totalEggs || 0),
+        transactionCount: Number(res.summary?.transactionCount || 0),
+      }))
+      .catch(() => setMonthSales({ totalAmount: 0, totalEggs: 0, transactionCount: 0 }));
+  }, [reports.length]);
+
 
   const sortedReports = [...reports].sort((a, b) => parseDateKey(a.date) - parseDateKey(b.date));
 
@@ -109,7 +122,7 @@ export const HomePage: React.FC = () => {
     !latestReport ? 'Belum Ada Data' : latestHasIssue ? 'Perlu Pantauan' : 'Baik';
   const healthDescription =
     !latestReport
-      ? 'Isi laporan pertama untuk menilai kondisi.'
+      ? 'Belum ada laporan harian. Isi laporan pertama untuk mulai memantau kondisi kandang.'
       : latestHasIssue
         ? (latestReport.issueTypes || []).join(', ') || 'Ada kondisi ayam yang perlu dipantau.'
         : issueReports7.length > 0
@@ -129,8 +142,8 @@ export const HomePage: React.FC = () => {
     if (sortedReports.length === 0) {
       return {
         tone: 'info',
-        title: 'Mulai dari laporan pertama',
-        message: 'Belum ada data produksi. Isi laporan harian agar Eggnest dapat membaca kondisi kandang Anda.',
+        title: 'Menunggu laporan pertama',
+        message: 'Belum ada data produksi. Isi laporan harian pertama agar perkembangan kandang mulai tercatat.',
       };
     }
     if (latestHasIssue) {
@@ -202,7 +215,7 @@ export const HomePage: React.FC = () => {
             </h1>
           </div>
           <p className={`text-stone-600 font-medium mt-1 ${scaleClass}`}>
-            Kelola kandang dan pantau perkembangan ayam Anda dengan mudah.
+            Pantau hasil pendampingan dan perkembangan ayam Anda dengan mudah.
           </p>
         </div>
 
@@ -215,7 +228,7 @@ export const HomePage: React.FC = () => {
           className="hidden md:flex items-center gap-2 px-6 py-3.5 bg-[#2D4A36] hover:bg-[#1B3022] text-[#FDFBF7] font-bold rounded-2xl shadow-md shadow-[#2D4A36]/20 transition-all transform active:scale-98 cursor-pointer"
         >
           <PlusCircle className="w-5 h-5 text-[#D4AF37]" />
-          <span>Lapor Hasil Hari Ini</span>
+          <span>Lihat Laporan Kandang</span>
         </button>
       </div>
 
@@ -375,11 +388,12 @@ export const HomePage: React.FC = () => {
           </div>
         </div>
 
-        {/* Estimasi Nilai Telur */}
+
+        {/* Penjualan Telur Nyata */}
         <div className="bg-white p-5 rounded-3xl border border-[#EFECE6] shadow-xs hover:border-[#D9D4C7] transition-all">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-stone-500 uppercase tracking-wider">
-              Estimasi Nilai Telur
+              Penjualan Bulan Ini
             </span>
             <div className="w-9 h-9 rounded-xl bg-[#EAF2EC] text-[#1B3022] flex items-center justify-center font-bold border border-[#CDE3D3]">
               <TrendingUp className="w-5 h-5 text-[#2D4A36]" />
@@ -388,11 +402,19 @@ export const HomePage: React.FC = () => {
 
           <div className="mt-3">
             <div className="text-2xl lg:text-3xl font-black text-[#1B3022] font-['Outfit'] truncate">
-              {formatRupiah(estimatedEggValue)}
+              {monthSales.transactionCount > 0 ? formatRupiah(monthSales.totalAmount) : 'Belum ada'}
             </div>
             <span className="text-xs text-stone-500 font-medium block mt-1">
-              Berdasarkan produksi bulan ini ({monthEggCount} butir)
+              {monthSales.transactionCount > 0
+                ? `${monthSales.totalEggs} butir terjual • ${monthSales.transactionCount} transaksi`
+                : 'Catat transaksi setelah telur benar-benar terjual'}
             </span>
+            <button
+              onClick={() => navigate('/sales')}
+              className="mt-3 text-[11px] font-black text-[#2D4A36] hover:underline"
+            >
+              + Catat / Lihat Penjualan →
+            </button>
           </div>
         </div>
 
@@ -427,17 +449,17 @@ export const HomePage: React.FC = () => {
         </div>
       </div>
 
-      {/* Tombol Besar: + LAPOR HASIL HARI INI */}
+      {/* Tombol Besar: LAPORAN KANDANG HARI INI */}
       <div className="bg-[#1B3022] rounded-3xl p-6 md:p-8 text-[#FDFBF7] shadow-xl border border-[#2D4A36] flex flex-col md:flex-row items-center justify-between gap-6">
         <div className="space-y-1 text-center md:text-left">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 text-[#A3B899] text-xs font-bold mb-1 border border-white/10">
-            <Sparkles className="w-3.5 h-3.5 text-[#D4AF37]" /> Pencatatan 20 Detik
+            <Sparkles className="w-3.5 h-3.5 text-[#D4AF37]" /> Laporan Harian Member
           </div>
           <h3 className="text-2xl md:text-3xl font-black font-['Outfit'] text-[#FDFBF7]">
-            + LAPOR HASIL HARI INI
+            LAPORAN KANDANG HARI INI
           </h3>
           <p className="text-[#A3B899] text-sm font-medium">
-            Input produksi, pakan, dan kondisi ayam harian Anda dengan mudah.
+            Catat telur, pakan, dan kondisi Ayam #1 sampai #12 dengan cepat.
           </p>
         </div>
 
@@ -448,7 +470,7 @@ export const HomePage: React.FC = () => {
           }}
           className="w-full md:w-auto px-8 py-4 bg-[#D4AF37] hover:bg-[#E5B842] text-[#1B3022] font-black text-lg rounded-2xl shadow-md transition-all transform hover:scale-105 active:scale-95 cursor-pointer whitespace-nowrap"
         >
-          Mulai Lapor Sekarang →
+          Isi / Lihat Laporan →
         </button>
       </div>
 
@@ -496,7 +518,7 @@ export const HomePage: React.FC = () => {
               }}
               className="w-full mt-4 py-3.5 rounded-2xl bg-[#D4AF37] hover:bg-[#C49C24] text-[#1B3022] font-black cursor-pointer"
             >
-              LAPOR SEKARANG →
+              LIHAT LAPORAN →
             </button>
           )}
         </div>
@@ -688,9 +710,9 @@ export const HomePage: React.FC = () => {
               </div>
 
               <div className="flex items-center justify-between pt-3">
-                <span className="text-xs text-stone-600 font-medium">Estimasi Nilai Telur:</span>
+                <span className="text-xs text-stone-600 font-medium">Omzet Penjualan:</span>
                 <span className="text-base font-black text-[#2D4A36] font-['Outfit']">
-                  {formatRupiah(estimatedEggValue)}
+                  {monthSales.transactionCount > 0 ? formatRupiah(monthSales.totalAmount) : 'Belum ada'}
                 </span>
               </div>
             </div>
@@ -778,7 +800,7 @@ export const HomePage: React.FC = () => {
                     Laporan Hari Ini Selesai
                   </h4>
                   <p className="text-xs text-stone-600 mt-1">
-                    Data {todayEggCount} butir telur telah tersimpan dan status garansi kandang tetap aktif.
+                    Data {todayEggCount} butir telur sudah Anda laporkan dan tersimpan di Eggnest.
                   </p>
                 </div>
               </div>
@@ -806,7 +828,7 @@ export const HomePage: React.FC = () => {
                     Jangan lupa lapor hari ini
                   </h4>
                   <p className="text-xs text-stone-600 mt-1">
-                    Input laporan harian untuk memantau perkembangan ayam & menjaga garansi aktif.
+                    Laporan kandang hari ini belum diisi. Isi sekarang agar perkembangan ayam tetap tercatat.
                   </p>
                 </div>
               </div>
@@ -817,7 +839,7 @@ export const HomePage: React.FC = () => {
           }}
                 className="mt-3 text-xs font-bold text-[#2B6E7F] hover:underline text-left cursor-pointer"
               >
-                Isi Laporan Sekarang →
+                Lihat Status Laporan →
               </button>
             </div>
           )}
@@ -865,7 +887,7 @@ export const HomePage: React.FC = () => {
                     Belum Ada Laporan
                   </h4>
                   <p className="text-xs text-stone-600 mt-1">
-                    Catat panen telur dan pakan harian Anda untuk melihat statistik kandang.
+                    Belum ada laporan harian. Statistik kandang akan muncul setelah Anda mengisi laporan pertama.
                   </p>
                 </div>
               </div>
@@ -876,7 +898,7 @@ export const HomePage: React.FC = () => {
           }}
                 className="mt-3 text-xs font-bold text-[#2D4A36] hover:underline text-left cursor-pointer"
               >
-                Buat Laporan Pertama →
+                Lihat Halaman Laporan →
               </button>
             </div>
           )}
