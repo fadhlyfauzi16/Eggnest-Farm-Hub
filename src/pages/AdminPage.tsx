@@ -147,6 +147,8 @@ export const AdminPage: React.FC = () => {
   const [newFarmCode, setNewFarmCode] = useState('');
   const [newFarmOwner, setNewFarmOwner] = useState('');
   const [newFarmPhone, setNewFarmPhone] = useState('');
+  const [newFarmPassword, setNewFarmPassword] = useState('');
+  const [savingFarm, setSavingFarm] = useState(false);
   const [newFarmLocation, setNewFarmLocation] = useState('');
   const [newFarmChickens, setNewFarmChickens] = useState(12);
   const [newFarmPartnerId, setNewFarmPartnerId] = useState('');
@@ -327,15 +329,36 @@ export const AdminPage: React.FC = () => {
 
   const handleCreateFarm = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    const cleanOwner = newFarmOwner.trim();
+    const cleanPhone = newFarmPhone.trim();
+    const cleanPassword = newFarmPassword.trim();
+
+    if (!cleanOwner) {
+      showToast('⚠️ Nama Member wajib diisi.');
+      return;
+    }
+    if (!cleanPhone) {
+      showToast('⚠️ Nomor WhatsApp Member wajib diisi.');
+      return;
+    }
+    if (cleanPassword.length < 6) {
+      showToast('⚠️ Password awal Member minimal 6 karakter.');
+      return;
+    }
+    if (!newFarmPartnerId) {
+      showToast('⚠️ Pilih Mitra Marketing untuk Member ini terlebih dahulu.');
+      return;
+    }
+
     try {
-      if (!newFarmPartnerId) {
-        showToast('⚠️ Pilih Mitra Marketing untuk Member ini terlebih dahulu.');
-        return;
-      }
+      setSavingFarm(true);
+
       const res = await api.createFarm({
         farmCode: newFarmCode.trim() || undefined,
-        ownerName: newFarmOwner.trim(),
-        phone: newFarmPhone.trim(),
+        ownerName: cleanOwner,
+        phone: cleanPhone,
+        password: cleanPassword,
         location: 'Lokasi menunggu GPS Member',
         initialChickens: newFarmChickens,
         chickenBreed: 'Layer Lohmann Brown Petelur Unggul',
@@ -343,16 +366,28 @@ export const AdminPage: React.FC = () => {
         partnerId: newFarmPartnerId,
       });
 
-      showToast(`${res.message} Kode aktivasi: ${String((res.farm as any)?.farmCode ?? (res.farm as any)?.farm_code ?? '')}`);
+      const createdCode = String(
+        (res.farm as any)?.farmCode ?? (res.farm as any)?.farm_code ?? newFarmCode ?? ''
+      );
+
+      showToast(`${res.message} Farm ID: ${createdCode}`);
+
       setIsAddFarmOpen(false);
       setNewFarmCode('');
       setNewFarmOwner('');
       setNewFarmPhone('');
+      setNewFarmPassword('');
       setNewFarmLocation('');
       setNewFarmPartnerId('');
-      window.setTimeout(() => window.location.reload(), 500);
+      setNewFarmChickens(12);
+
+      // Data Admin berasal dari context global. Reload setelah respons sukses
+      // memastikan Farm ID + akun Member yang baru langsung muncul di daftar.
+      window.setTimeout(() => window.location.reload(), 350);
     } catch (err: any) {
-      showToast(err?.message || 'Gagal membuat Farm ID');
+      showToast(err?.message || 'Gagal membuat akun Member dan Farm ID.');
+    } finally {
+      setSavingFarm(false);
     }
   };
 
@@ -1780,13 +1815,14 @@ Ketik HAPUS untuk melanjutkan.`
               </div>
               <div>
                 <label className="block font-bold text-stone-700 mb-1">
-                  Nama Pemilik (Opsional jika belum diklaim)
+                  Nama Member / Pemilik *
                 </label>
                 <input
                   type="text"
+                  required
                   value={newFarmOwner}
                   onChange={(e) => setNewFarmOwner(e.target.value)}
-                  placeholder="Kosongkan untuk Farm ID unclaimed"
+                  placeholder="Contoh: Fadhly Fauzi"
                   className="w-full px-3.5 py-2.5 bg-[#FAF7F2] border border-[#EFECE6] rounded-xl text-sm font-semibold text-[#1B3022]"
                 />
               </div>
@@ -1794,11 +1830,28 @@ Ketik HAPUS untuk melanjutkan.`
                 <label className="block font-bold text-stone-700 mb-1">No. WhatsApp</label>
                 <input
                   type="tel"
+                  required
                   value={newFarmPhone}
                   onChange={(e) => setNewFarmPhone(e.target.value)}
                   placeholder="0812xxxxxxxx"
                   className="w-full px-3.5 py-2.5 bg-[#FAF7F2] border border-[#EFECE6] rounded-xl text-sm font-semibold text-[#1B3022]"
                 />
+              </div>
+              <div>
+                <label className="block font-bold text-stone-700 mb-1">Password Awal Member *</label>
+                <input
+                  type="text"
+                  required
+                  minLength={6}
+                  value={newFarmPassword}
+                  onChange={(e) => setNewFarmPassword(e.target.value)}
+                  placeholder="Minimal 6 karakter"
+                  autoComplete="new-password"
+                  className="w-full px-3.5 py-2.5 bg-[#FAF7F2] border border-[#EFECE6] rounded-xl text-sm font-semibold text-[#1B3022]"
+                />
+                <p className="text-[10px] text-stone-500 mt-1">
+                  Password ini digunakan Member untuk login pertama kali. Sampaikan bersama Farm ID dan nomor WhatsApp login.
+                </p>
               </div>
               <div className="rounded-xl bg-[#EAF2EC] border border-[#CDE3D3] p-3">
                 <label className="block font-bold text-[#1B3022] mb-1">Lokasi Kandang</label>
@@ -1839,9 +1892,10 @@ Ketik HAPUS untuk melanjutkan.`
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 bg-[#1B3022] hover:bg-[#2D4A36] text-white font-bold rounded-xl shadow-xs"
+                  disabled={savingFarm}
+                  className="px-5 py-2.5 bg-[#1B3022] hover:bg-[#2D4A36] disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold rounded-xl shadow-xs"
                 >
-                  Simpan Farm ID
+                  {savingFarm ? 'Menyimpan...' : 'Simpan Farm ID'}
                 </button>
               </div>
             </form>
