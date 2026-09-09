@@ -1,5 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useFarm } from '../context/FarmContext';
 import { EggnestLogo } from '../components/common/EggnestLogo';
 import {
   Home,
@@ -28,6 +29,7 @@ interface LandingPageProps {
 }
 
 export const LandingPage: React.FC<LandingPageProps> = ({ onNavigateToAuth }) => {
+  const { setActivePage, currentUser } = useFarm();
   const navigate = useNavigate();
 
   const handleAuthNavigation = (mode: 'login' | 'register' = 'login') => {
@@ -36,6 +38,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigateToAuth }) =>
     } else {
       navigate(`/auth?mode=${mode}`);
     }
+  };
+
+  const handleDashboardNavigation = () => {
+    const targetRoute = currentUser?.role === 'admin' ? '/admin' : '/home';
+    const targetPage = currentUser?.role === 'admin' ? 'admin' : 'beranda';
+    setActivePage(targetPage);
+    navigate(targetRoute);
   };
 
   const scrollToSection = (id: string) => {
@@ -48,94 +57,82 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigateToAuth }) =>
   return (
     <div className="min-h-screen bg-[#FDFBF7] text-[#1B3022] font-['Plus_Jakarta_Sans'] flex flex-col selection:bg-[#EAF2EC] selection:text-[#1B3022]">
       {/* Public Header Navigation */}
-      <header className="sticky top-0 z-40 bg-[#FDFBF7]/90 backdrop-blur-md border-b border-[#EFECE6] px-4 sm:px-8 py-3.5 transition-all">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          {/* Logo */}
-          <div className="flex items-center gap-3 cursor-pointer" onClick={() => scrollToSection('hero')}>
-            <EggnestLogo size="md" />
-            <div className="flex flex-col">
-              <span className="font-extrabold text-xl tracking-tight text-[#1B3022] font-['Outfit'] leading-none">
-                EGGNEST
-              </span>
-              <span className="text-[10px] font-black tracking-widest text-[#2D4A36] uppercase mt-0.5">
-                FARM HUB
-              </span>
+      <header className="sticky top-0 z-40 bg-[#FDFBF7]/95 backdrop-blur-md border-b border-[#EFECE6] px-4 sm:px-8 py-3 transition-all">
+        <div className="max-w-7xl mx-auto flex items-center justify-between gap-3 min-w-0">
+          {/* Logo — mobile dibuat lebih ringkas agar tidak mendorong tombol login keluar layar */}
+          <button
+            type="button"
+            onClick={() => scrollToSection('hero')}
+            className="min-w-0 shrink-0 cursor-pointer"
+            aria-label="Kembali ke beranda"
+          >
+            <div className="sm:hidden relative w-[205px] h-[54px]">
+              <div className="absolute left-0 top-1/2 -translate-y-1/2 origin-left scale-[0.78]">
+                <EggnestLogo size="md" />
+              </div>
             </div>
-          </div>
+            <div className="hidden sm:block">
+              <EggnestLogo size="md" />
+            </div>
+          </button>
 
           {/* Nav Menu */}
           <nav className="hidden md:flex items-center gap-7 text-sm font-semibold text-stone-700">
-            <button
-              onClick={() => scrollToSection('hero')}
-              className="hover:text-[#1B3022] transition-colors cursor-pointer"
-            >
+            <button onClick={() => scrollToSection('hero')} className="hover:text-[#1B3022] transition-colors cursor-pointer">
               Beranda
             </button>
-            <button
-              onClick={() => scrollToSection('cara-kerja')}
-              className="hover:text-[#1B3022] transition-colors cursor-pointer"
-            >
+            <button onClick={() => scrollToSection('cara-kerja')} className="hover:text-[#1B3022] transition-colors cursor-pointer">
               Cara Kerja
             </button>
-            <button
-              onClick={() => scrollToSection('fitur')}
-              className="hover:text-[#1B3022] transition-colors cursor-pointer"
-            >
+            <button onClick={() => scrollToSection('fitur')} className="hover:text-[#1B3022] transition-colors cursor-pointer">
               Fitur
             </button>
-            <button
-              onClick={() => scrollToSection('edukasi')}
-              className="hover:text-[#1B3022] transition-colors cursor-pointer"
-            >
+            <button onClick={() => scrollToSection('edukasi')} className="hover:text-[#1B3022] transition-colors cursor-pointer">
               Edukasi
             </button>
-            <button
-              onClick={() => scrollToSection('bantuan')}
-              className="hover:text-[#1B3022] transition-colors cursor-pointer"
-            >
+            <button onClick={() => scrollToSection('bantuan')} className="hover:text-[#1B3022] transition-colors cursor-pointer">
               Bantuan
             </button>
           </nav>
 
-          {/* CTA Buttons */}
-          <div className="flex items-center gap-3">
+          {/* CTA — landing publik selalu menampilkan MASUK */}
+          <div className="shrink-0">
             <button
               onClick={() => handleAuthNavigation('login')}
-              className="px-5 py-2.5 bg-[#1B3022] hover:bg-[#2D4A36] text-[#FDFBF7] font-bold text-sm rounded-2xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer transform active:scale-95"
+              className="px-5 sm:px-6 py-3 sm:py-3.5 bg-[#1B3022] hover:bg-[#2D4A36] text-[#FDFBF7] font-black text-sm rounded-2xl shadow-sm transition-all flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer active:scale-95"
             >
-              <span>MASUK / LOGIN</span>
+              <span>MASUK</span>
               <ArrowRight className="w-4 h-4 text-[#D4AF37]" />
             </button>
           </div>
         </div>
       </header>
-
       {/* 1. HERO SECTION */}
-      <section id="hero" className="relative pt-10 pb-16 md:pt-16 md:pb-24 px-4 sm:px-8 overflow-hidden">
-        {/* Soft decorative background blurs */}
-        <div className="absolute top-10 right-10 w-96 h-96 bg-[#EAF2EC] rounded-full blur-3xl -z-10 opacity-70 pointer-events-none"></div>
-        <div className="absolute bottom-10 left-10 w-80 h-80 bg-[#FEF6E9] rounded-full blur-3xl -z-10 opacity-80 pointer-events-none"></div>
+      <section id="hero" className="relative pt-8 pb-14 sm:pt-12 sm:pb-20 md:pt-16 md:pb-24 px-4 sm:px-8 overflow-hidden">
+        <div className="absolute top-8 right-4 sm:right-10 w-72 sm:w-96 h-72 sm:h-96 bg-[#EAF2EC] rounded-full blur-3xl -z-10 opacity-70 pointer-events-none"></div>
+        <div className="absolute bottom-8 left-4 sm:left-10 w-64 sm:w-80 h-64 sm:h-80 bg-[#FEF6E9] rounded-full blur-3xl -z-10 opacity-80 pointer-events-none"></div>
 
-        <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
-          {/* Left Column: Copy & CTAs */}
-          <div className="lg:col-span-7 space-y-6 text-center lg:text-left">
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#EAF2EC] border border-[#CDE3D3] text-[#1B3022] text-xs sm:text-sm font-bold shadow-xs">
-              <Sparkles className="w-4 h-4 text-[#D4AF37]" />
-              <span>Sistem Pendamping Resmi Member Eggnest</span>
+        <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
+          {/* Left Column */}
+          <div className="lg:col-span-7 text-center lg:text-left">
+            <div className="inline-flex max-w-full items-center justify-center gap-2 px-3.5 sm:px-4 py-2 rounded-full bg-[#EAF2EC] border border-[#CDE3D3] text-[#1B3022] text-[11px] sm:text-sm font-bold shadow-xs">
+              <Sparkles className="w-4 h-4 text-[#D4AF37] shrink-0" />
+              <span className="leading-tight">Sistem Pendamping Resmi Member Eggnest</span>
             </div>
 
-            <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black text-[#1B3022] font-['Outfit'] tracking-tight leading-[1.15]">
-              Pelihara Ayam di Rumah Jadi Lebih Mudah
+            <h1 className="mt-7 text-[32px] sm:text-5xl lg:text-6xl font-black text-[#1B3022] font-['Outfit'] tracking-tight leading-[1.08] sm:leading-[1.12]">
+              Pelihara Ayam di Rumah
+              <span className="block mt-1">Jadi Lebih Mudah</span>
             </h1>
 
-            <p className="text-base sm:text-xl text-stone-600 font-medium max-w-2xl mx-auto lg:mx-0 leading-relaxed">
+            <p className="mt-6 text-[16px] sm:text-xl text-stone-600 font-medium max-w-2xl mx-auto lg:mx-0 leading-relaxed">
               Pantau perkembangan ayam, catat produksi telur, belajar cara perawatan dan dapatkan pendampingan langsung dari Eggnest.
             </p>
 
-            <div className="pt-2 flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4">
+            <div className="mt-7 flex flex-col sm:flex-row items-stretch sm:items-center justify-center lg:justify-start gap-3 sm:gap-4">
               <button
-                onClick={() => handleAuthNavigation('register')}
-                className="w-full sm:w-auto px-8 py-4 bg-[#1B3022] hover:bg-[#2D4A36] text-[#FDFBF7] font-black text-base sm:text-lg rounded-2xl shadow-lg shadow-[#1B3022]/15 transition-all transform hover:-translate-y-0.5 active:scale-95 cursor-pointer flex items-center justify-center gap-2"
+                onClick={() => handleAuthNavigation('login')}
+                className="w-full sm:w-auto min-h-[58px] px-8 py-4 bg-[#1B3022] hover:bg-[#2D4A36] text-[#FDFBF7] font-black text-base sm:text-lg rounded-2xl shadow-lg shadow-[#1B3022]/15 transition-all active:scale-[0.98] cursor-pointer flex items-center justify-center gap-3"
               >
                 <span>MULAI SEKARANG</span>
                 <ArrowRight className="w-5 h-5 text-[#D4AF37]" />
@@ -143,56 +140,51 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigateToAuth }) =>
 
               <button
                 onClick={() => scrollToSection('cara-kerja')}
-                className="w-full sm:w-auto px-7 py-4 bg-[#FAF7F2] hover:bg-[#EFECE6] text-[#1B3022] font-bold text-base rounded-2xl border border-[#EFECE6] transition-all cursor-pointer flex items-center justify-center gap-2"
+                className="w-full sm:w-auto min-h-[58px] px-7 py-4 bg-[#FDFBF7] hover:bg-[#FAF7F2] text-[#1B3022] font-black text-base rounded-2xl border border-[#E8E3DA] transition-all cursor-pointer flex items-center justify-center"
               >
-                <span>PELAJARI CARA KERJA</span>
+                PELAJARI CARA KERJA
               </button>
             </div>
 
             {/* Micro Highlights */}
-            <div className="pt-4 grid grid-cols-3 gap-3 border-t border-[#EFECE6] max-w-lg mx-auto lg:mx-0">
-              <div>
-                <span className="block text-xl font-black text-[#1B3022] font-['Outfit']">1 Kandang</span>
-                <span className="text-xs text-stone-500 font-medium">Halaman Rumah</span>
+            <div className="mt-7 pt-6 border-t border-[#EFECE6] grid grid-cols-3 gap-1 sm:gap-3 max-w-xl mx-auto lg:mx-0">
+              <div className="px-1 sm:px-3 text-center">
+                <Home className="w-5 h-5 sm:w-6 sm:h-6 mx-auto text-[#2D4A36] mb-2" />
+                <span className="block text-sm sm:text-xl font-black text-[#1B3022] font-['Outfit'] leading-tight">1 Kandang</span>
+                <span className="block mt-1 text-[10px] sm:text-xs text-stone-500 font-medium leading-tight">Halaman Rumah</span>
               </div>
-              <div>
-                <span className="block text-xl font-black text-[#2D4A36] font-['Outfit']">30 Detik</span>
-                <span className="text-xs text-stone-500 font-medium">Lapor Tiap Hari</span>
+              <div className="px-1 sm:px-3 text-center border-x border-[#EFECE6]">
+                <Clock className="w-5 h-5 sm:w-6 sm:h-6 mx-auto text-[#2D4A36] mb-2" />
+                <span className="block text-sm sm:text-xl font-black text-[#2D4A36] font-['Outfit'] leading-tight">30 Detik</span>
+                <span className="block mt-1 text-[10px] sm:text-xs text-stone-500 font-medium leading-tight">Lapor Tiap Hari</span>
               </div>
-              <div>
-                <span className="block text-xl font-black text-[#78350F] font-['Outfit']">100% Terpandu</span>
-                <span className="text-xs text-stone-500 font-medium">Konsultasi Dokter</span>
+              <div className="px-1 sm:px-3 text-center">
+                <ShieldCheck className="w-5 h-5 sm:w-6 sm:h-6 mx-auto text-[#D4AF37] mb-2" />
+                <span className="block text-sm sm:text-xl font-black text-[#1B3022] font-['Outfit'] leading-tight">100% Terpandu</span>
+                <span className="block mt-1 text-[10px] sm:text-xs text-stone-500 font-medium leading-tight">Pendampingan</span>
               </div>
             </div>
           </div>
 
-          {/* Right Column: Visual of Modern Clean Backyard Coop + House */}
-          <div className="lg:col-span-5 relative">
-            <div className="relative rounded-3xl overflow-hidden shadow-2xl border border-[#EFECE6] bg-white group">
+          {/* Right Column */}
+          <div className="lg:col-span-5 relative mt-2 lg:mt-0">
+            <div className="relative rounded-[28px] overflow-hidden shadow-xl border border-[#EFECE6] bg-white group">
               <img
                 src="https://images.unsplash.com/photo-1548550023-2bdb3c5beed7?auto=format&fit=crop&w=1200&q=80"
-                alt="Kandang Ayam Petelur Halaman Rumah Modern"
-                className="w-full h-80 sm:h-96 object-cover object-center group-hover:scale-105 transition-transform duration-500"
+                alt="Ayam petelur Eggnest di lingkungan rumah"
+                className="w-full h-[250px] sm:h-96 object-cover object-center group-hover:scale-[1.03] transition-transform duration-500"
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-[#1B3022]/80 via-transparent to-transparent flex flex-col justify-end p-6 text-[#FDFBF7]">
-                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#1B3022]/90 backdrop-blur-xs text-[#FDFBF7] text-xs font-bold w-fit mb-2 border border-white/20">
-                  <Home className="w-3.5 h-3.5 text-[#D4AF37]" /> Smart Home Farming
+              <div className="absolute inset-0 bg-gradient-to-r from-[#1B3022]/85 via-[#1B3022]/30 to-transparent flex flex-col justify-end sm:justify-center p-5 sm:p-7 text-[#FDFBF7]">
+                <div className="max-w-[230px]">
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#1B3022]/90 backdrop-blur-xs text-xs font-bold border border-white/20">
+                    <Home className="w-3.5 h-3.5 text-[#D4AF37]" />
+                    Smart Home Farming
+                  </div>
+                  <h3 className="mt-3 text-2xl sm:text-3xl font-black font-['Outfit'] leading-tight">
+                    Dari Rumah,
+                    <span className="block">Hasilkan Telur Sendiri</span>
+                  </h3>
                 </div>
-                <h3 className="text-xl font-bold font-['Outfit']">Kandang Praktis di Halaman Rumah</h3>
-                <p className="text-xs text-[#EAF2EC] font-medium mt-0.5">
-                  Desain higienis, bebas bau, ramah lingkungan untuk keluarga.
-                </p>
-              </div>
-            </div>
-
-            {/* Floating Live Badge */}
-            <div className="absolute -bottom-6 -left-4 sm:-left-6 bg-white p-4 rounded-2xl shadow-xl border border-[#EFECE6] flex items-center gap-3">
-              <div className="w-12 h-12 rounded-xl bg-[#FEF6E9] border border-[#FDE68A] flex items-center justify-center">
-                <Egg className="w-6 h-6 text-[#D4AF37]" />
-              </div>
-              <div>
-                <span className="text-[10px] font-bold text-stone-500 uppercase tracking-wider block">Telur Segar Setiap Pagi</span>
-                <span className="text-base font-black text-[#1B3022] font-['Outfit']">8–11 Butir / Hari</span>
               </div>
             </div>
           </div>
@@ -227,7 +219,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigateToAuth }) =>
               {
                 step: '2',
                 title: 'Aktifkan Farm ID',
-                desc: 'Daftar di Farm Hub dengan kode unik kandang Anda (contoh: EN-000001).',
+                desc: 'Akun Member dan Farm ID Anda diaktifkan oleh Admin Eggnest sebelum digunakan.',
                 icon: Sparkles,
                 badge: 'Aktivasi Digital',
               },
@@ -432,7 +424,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigateToAuth }) =>
                 </span>
               </div>
               <button
-                onClick={() => handleAuthNavigation('login')}
+                onClick={() => onNavigateToAuth('login')}
                 className="px-4 py-2 bg-[#D4AF37] text-[#1B3022] font-black text-xs rounded-xl self-start sm:self-auto cursor-pointer"
               >
                 Coba Demo Dashboard →
@@ -536,10 +528,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigateToAuth }) =>
 
           <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-4 relative z-10">
             <button
-              onClick={() => handleAuthNavigation('register')}
+              onClick={() => handleAuthNavigation('login')}
               className="w-full sm:w-auto px-8 py-4 bg-[#D4AF37] hover:bg-[#E5B842] text-[#1B3022] font-black text-base rounded-2xl shadow-md transition-all transform hover:scale-105 active:scale-95 cursor-pointer flex items-center justify-center gap-2"
             >
-              <span>AKTIFKAN FARM ANDA</span>
+              <span>MASUK KE FARM HUB</span>
               <ArrowRight className="w-5 h-5" />
             </button>
 
