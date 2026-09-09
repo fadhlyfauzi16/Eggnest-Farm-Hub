@@ -16,6 +16,7 @@ import { AcademyPage } from './pages/AcademyPage';
 import { SupportPage } from './pages/SupportPage';
 import { FarmScorePage } from './pages/FarmScorePage';
 import { FarmProfilePage } from './pages/FarmProfilePage';
+import { MemberActivationPage } from './pages/MemberActivationPage';
 import { AdminPage } from './pages/AdminPage';
 import { ApiDocsPage } from './pages/ApiDocsPage';
 import { MitraDashboardPage } from './pages/MitraDashboardPage';
@@ -66,6 +67,59 @@ const RequireSession: React.FC<{ role?: 'member' | 'admin' | 'mitra' }> = ({ rol
     const target =
       currentUser.role === 'admin' ? '/admin' : currentUser.role === 'mitra' ? '/mitra' : '/home';
     return <Navigate to={target} replace />;
+  }
+
+  return <Outlet />;
+};
+
+
+const hasCompletedMemberActivation = (farm: any): boolean => {
+  if (!farm?.id) return false;
+
+  const location = String(farm?.location || '').trim();
+  const fullAddress = String(farm?.fullAddress || farm?.full_address || '').trim();
+  const lat = farm?.latitude;
+  const lng = farm?.longitude;
+
+  const locationKey = location.toLowerCase();
+  const validLocation =
+    location.length > 0 &&
+    locationKey !== 'indonesia' &&
+    !locationKey.includes('belum') &&
+    !locationKey.includes('menunggu');
+
+  const validLat =
+    lat !== null &&
+    lat !== undefined &&
+    lat !== '' &&
+    Number.isFinite(Number(lat));
+
+  const validLng =
+    lng !== null &&
+    lng !== undefined &&
+    lng !== '' &&
+    Number.isFinite(Number(lng));
+
+  return validLocation && fullAddress.length > 0 && validLat && validLng;
+};
+
+const RequireMemberActivated: React.FC = () => {
+  const { currentUser, farm, isLoading } = useFarm();
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-[#FDFBF7] flex items-center justify-center text-[#1B3022] font-bold">
+        Memeriksa aktivasi kandang...
+      </div>
+    );
+  }
+
+  if (currentUser?.role !== 'member') {
+    return <Outlet />;
+  }
+
+  if (!hasCompletedMemberActivation(farm)) {
+    return <Navigate to="/activate" replace />;
   }
 
   return <Outlet />;
@@ -146,6 +200,19 @@ const AppRoutes: React.FC = () => (
     <Route path="/login" element={<Navigate to="/auth" replace />} />
     <Route path="/register" element={<Navigate to="/auth" replace />} />
 
+    {/* Aktivasi pertama Member dibuat terpisah dari dashboard.
+        Member yang lokasi kandangnya belum lengkap akan selalu diarahkan ke sini. */}
+    <Route element={<RequireSession role="member" />}>
+      <Route
+        path="/activate"
+        element={
+          <PublicWrapper>
+            <MemberActivationPage />
+          </PublicWrapper>
+        }
+      />
+    </Route>
+
     <Route element={<RequireSession />}>
       <Route element={<AppLayout />}>
         <Route element={<RequireSession role="mitra" />}>
@@ -163,20 +230,22 @@ const AppRoutes: React.FC = () => (
         </Route>
 
         <Route element={<RequireSession role="member" />}>
-          <Route path="/home" element={<HomePage />} />
-          <Route path="/beranda" element={<Navigate to="/home" replace />} />
-          <Route path="/reports" element={<DailyReportPage />} />
-          <Route path="/sales" element={<EggSalesPage />} />
-          <Route path="/laporan" element={<Navigate to="/reports" replace />} />
-          <Route path="/development" element={<DevelopmentPage />} />
-          <Route path="/perkembangan" element={<Navigate to="/development" replace />} />
-          <Route path="/academy" element={<AcademyPage />} />
-          <Route path="/support" element={<SupportPage />} />
-          <Route path="/bantuan" element={<Navigate to="/support" replace />} />
-          <Route path="/score" element={<FarmScorePage />} />
-          <Route path="/farm" element={<Navigate to="/score" replace />} />
-          <Route path="/profile" element={<FarmProfilePage />} />
-          <Route path="/profil" element={<Navigate to="/profile" replace />} />
+          <Route element={<RequireMemberActivated />}>
+            <Route path="/home" element={<HomePage />} />
+            <Route path="/beranda" element={<Navigate to="/home" replace />} />
+            <Route path="/reports" element={<DailyReportPage />} />
+            <Route path="/sales" element={<EggSalesPage />} />
+            <Route path="/laporan" element={<Navigate to="/reports" replace />} />
+            <Route path="/development" element={<DevelopmentPage />} />
+            <Route path="/perkembangan" element={<Navigate to="/development" replace />} />
+            <Route path="/academy" element={<AcademyPage />} />
+            <Route path="/support" element={<SupportPage />} />
+            <Route path="/bantuan" element={<Navigate to="/support" replace />} />
+            <Route path="/score" element={<FarmScorePage />} />
+            <Route path="/farm" element={<Navigate to="/score" replace />} />
+            <Route path="/profile" element={<FarmProfilePage />} />
+            <Route path="/profil" element={<Navigate to="/profile" replace />} />
+          </Route>
         </Route>
 
         <Route element={<RequireSession role="admin" />}>
