@@ -538,6 +538,62 @@ export const EggnestSlideSections: React.FC<EggnestSlideSectionsProps> = ({
       </section>
 
       {/* ========================================================================= */}
+      {/* VIDEO — LIHAT EGGNEST LEBIH DEKAT                                          */}
+      {/* ========================================================================= */}
+      <section
+        id="video-eggnest"
+        className="min-h-screen w-full flex flex-col justify-center py-24 px-6 sm:px-12 max-w-7xl mx-auto"
+      >
+        <div className="w-full rounded-3xl border border-[#E9B949]/35 bg-[#0C1F14]/90 backdrop-blur-xl shadow-2xl overflow-hidden">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-0 items-stretch">
+            <div className="lg:col-span-4 p-7 sm:p-9 lg:p-10 flex flex-col justify-center">
+              <div className="inline-flex w-fit items-center gap-2 px-3.5 py-1.5 rounded-full border border-[#E9B949]/35 bg-[#153A24]/70 text-[#E9B949] text-xs font-mono tracking-widest uppercase mb-5">
+                <span className="w-2 h-2 rounded-full bg-[#E9B949] animate-pulse" />
+                <span>VIDEO EGGNEST • KUNJUNGAN LAPANGAN</span>
+              </div>
+
+              <h2 className="text-3xl sm:text-4xl lg:text-5xl font-display font-medium text-[#FFFFFF] leading-tight mb-5">
+                Lihat Eggnest
+                <br />
+                <span className="text-[#E9B949] font-normal italic">Lebih Dekat.</span>
+              </h2>
+
+              <p className="text-sm sm:text-base text-[#D1C8B8] leading-relaxed font-light mb-6">
+                Saksikan langsung konsep kandang, ayam petelur, proses pendampingan, dan ekosistem Eggnest Home Farm dalam satu pengalaman nyata.
+              </p>
+
+              <div className="space-y-3 text-xs sm:text-sm text-[#D1C8B8]">
+                <div className="flex items-start gap-3">
+                  <span className="mt-1 w-2 h-2 rounded-full bg-[#E9B949] shrink-0" />
+                  <span>Kandang rumahan modern dan terstandar.</span>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="mt-1 w-2 h-2 rounded-full bg-[#81B252] shrink-0" />
+                  <span>Pendampingan untuk membantu pemula memulai dengan lebih mudah.</span>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="mt-1 w-2 h-2 rounded-full bg-[#E9B949] shrink-0" />
+                  <span>Dari rumah menuju ekosistem ketahanan pangan bersama.</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="lg:col-span-8 bg-black/70 min-h-[320px] sm:min-h-[440px] lg:min-h-[560px] flex items-center justify-center">
+              <video
+                src="/videos/video-eggnest.mp4"
+                controls
+                playsInline
+                preload="metadata"
+                className="w-full h-full max-h-[72vh] object-contain bg-black"
+              >
+                Browser Anda tidak mendukung pemutaran video.
+              </video>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ========================================================================= */}
       {/* SLIDE 09 — 1 RUMAH • 1 KANDANG • 1 FARM ID                                */}
       {/* ========================================================================= */}
       <section
