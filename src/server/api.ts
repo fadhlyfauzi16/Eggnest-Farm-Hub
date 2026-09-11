@@ -1243,11 +1243,67 @@ router.put('/farms/me/profile', requireAuth, async (req: AuthRequest, res) => {
     if (!chickenBreed) return res.status(400).json({ success: false, message: 'Jenis ayam wajib diisi.' });
     if (!Number.isInteger(activeChickens) || activeChickens < 1 || activeChickens > 1000) return res.status(400).json({ success: false, message: 'Jumlah ayam aktif tidak valid.' });
     if (!Number.isFinite(currentAgeWeeks) || currentAgeWeeks < 1 || currentAgeWeeks > 200) return res.status(400).json({ success: false, message: 'Usia ayam tidak valid.' });
-    const now = new Date().toISOString(); const today = now.split('T')[0];
-    runSql(db, `UPDATE farms SET location=?, full_address=?, latitude=?, longitude=?, province=?, regency=?, district=?, village=?, chicken_breed=?, active_chickens=?, current_age_weeks=?, chicken_age_reference_date=?, updated_at=? WHERE id=?`, [
-      location, fullAddress, lat, lng, String(b.province ?? farm.province ?? ''), String(b.regency ?? location), String(b.district ?? farm.district ?? ''), String(b.village ?? farm.village ?? ''), chickenBreed, activeChickens, currentAgeWeeks, today, now, farm.id
-    ]);
-    return res.json({ success: true, message: 'Data kandang berhasil diperbarui.', farm: queryOne<any>(db, `SELECT * FROM farms WHERE id = ?`, [farm.id]) });
+    const now = new Date().toISOString();
+    const today = now.split('T')[0];
+
+    // Aktivasi pertama terjadi saat Member untuk pertama kalinya menyimpan GPS + alamat.
+    // Farm ID yang dibuat Admin belum dianggap aktif secara operasional.
+    let activationDate = farm.activation_date || null;
+    let warrantyEnd = farm.warranty_end || null;
+    let activationMessage = 'Data kandang berhasil diperbarui.';
+
+    if (!activationDate) {
+      activationDate = today;
+      const warrantyDate = new Date(`${today}T00:00:00`);
+      warrantyDate.setDate(warrantyDate.getDate() + 30);
+      warrantyEnd = warrantyDate.toISOString().split('T')[0];
+      activationMessage = 'Kandang berhasil diaktifkan. Masa garansi 30 hari dimulai hari ini.';
+    }
+
+    runSql(
+      db,
+      `UPDATE farms SET
+        location=?,
+        full_address=?,
+        latitude=?,
+        longitude=?,
+        province=?,
+        regency=?,
+        district=?,
+        village=?,
+        chicken_breed=?,
+        active_chickens=?,
+        current_age_weeks=?,
+        chicken_age_reference_date=?,
+        activation_date=?,
+        warranty_end=?,
+        updated_at=?
+       WHERE id=?`,
+      [
+        location,
+        fullAddress,
+        lat,
+        lng,
+        String(b.province ?? farm.province ?? ''),
+        String(b.regency ?? location),
+        String(b.district ?? farm.district ?? ''),
+        String(b.village ?? farm.village ?? ''),
+        chickenBreed,
+        activeChickens,
+        currentAgeWeeks,
+        today,
+        activationDate,
+        warrantyEnd,
+        now,
+        farm.id,
+      ]
+    );
+
+    return res.json({
+      success: true,
+      message: activationMessage,
+      farm: queryOne<any>(db, `SELECT * FROM farms WHERE id = ?`, [farm.id]),
+    });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ success: false, message: 'Gagal memperbarui data kandang.' });
@@ -1314,7 +1370,6 @@ router.post('/admin/farms', requireAdmin, async (req: AuthRequest, res) => {
     }
 
     const now = new Date().toISOString();
-    const today = now.split('T')[0];
     const newFarmId = `farm-${Date.now()}`;
     const newUserId = `user-${Date.now()}`;
 
@@ -1329,8 +1384,8 @@ router.post('/admin/farms', requireAdmin, async (req: AuthRequest, res) => {
       ) VALUES (
         ?, ?, NULL, ?, ?, '',
         ?, NULL, NULL, NULL, '', '', '', '', ?,
-        ?, ?, ?, ?,
-        ?, ?, '30 Hari setelah aktivasi', 'active',
+        NULL, ?, ?, ?,
+        ?, ?, NULL, 'active',
         'https://images.unsplash.com/photo-1548550023-2bdb3c5beed7?auto=format&fit=crop&w=1000&q=80', ?, ?
       )`,
       [
@@ -1340,7 +1395,6 @@ router.post('/admin/farms', requireAdmin, async (req: AuthRequest, res) => {
         cleanPhone,
         purchaseDate || null,
         partner.id,
-        today,
         Number(initialChickens),
         Number(initialChickens),
         chickenBreed,
