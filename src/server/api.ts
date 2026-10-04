@@ -1384,8 +1384,8 @@ router.post('/admin/farms', requireAdmin, async (req: AuthRequest, res) => {
       ) VALUES (
         ?, ?, NULL, ?, ?, '',
         ?, NULL, NULL, NULL, '', '', '', '', ?,
-        NULL, ?, ?, ?,
-        ?, ?, NULL, 'active',
+        ?, ?, ?, ?,
+        ?, ?, ?, 'active',
         'https://images.unsplash.com/photo-1548550023-2bdb3c5beed7?auto=format&fit=crop&w=1000&q=80', ?, ?
       )`,
       [
@@ -1395,11 +1395,13 @@ router.post('/admin/farms', requireAdmin, async (req: AuthRequest, res) => {
         cleanPhone,
         purchaseDate || null,
         partner.id,
+        now.split('T')[0],
         Number(initialChickens),
         Number(initialChickens),
         chickenBreed,
         Number(initialAgeWeeks),
         Number(initialAgeWeeks),
+        new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         now,
         now,
       ]
@@ -1448,7 +1450,11 @@ router.post('/admin/farms', requireAdmin, async (req: AuthRequest, res) => {
     });
   } catch (err: any) {
     console.error('Error creating member/farm:', err);
-    return res.status(500).json({ success: false, message: 'Gagal membuat akun Member dan Farm ID.' });
+    const detail = String(err?.message || err || '').trim();
+    return res.status(500).json({
+      success: false,
+      message: detail ? `Gagal membuat akun Member dan Farm ID: ${detail}` : 'Gagal membuat akun Member dan Farm ID.'
+    });
   }
 });
 
